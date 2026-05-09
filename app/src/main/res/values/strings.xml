@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">HyperOS Updater</string>
+    <string name="tab_ota">System</string>
+    <string name="tab_system_apps">System Apps</string>
+    <string name="tab_third_party">Apps</string>
+    <string name="tab_settings">Settings</string>
+    <string name="check_updates">Check for Updates</string>
+    <string name="download">Download</string>
+    <string name="install">Install</string>
+    <string name="up_to_date">Up to date</string>
+    <string name="update_available">Update available</string>
+    <string name="downloading">Downloading…</string>
+    <string name="installing">Installing…</string>
+    <string name="shizuku_ready">Shizuku ready</string>
+    <string name="shizuku_not_configured">Shizuku not configured</string>
+    <string name="settings">Settings</string>
+    <string name="ota_channel_name">System Updates</string>
+    <string name="ota_channel_desc">HyperOS ROM update notifications</string>
+    <string name="app_channel_name">App Updates</string>
+    <string name="app_channel_desc">App update availability notifications</string>
+</resources>

@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Download arrow -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,38L54,68M54,68L44,58M54,68L64,58"
+        android:strokeWidth="4"
+        android:strokeColor="#FFFFFF"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <!-- Arrow line -->
+    <path
+        android:fillColor="@android:color/transparent"
+        android:pathData="M54,38L54,58"
+        android:strokeWidth="4"
+        android:strokeColor="#FFFFFF"
+        android:strokeLineCap="round" />
+    <!-- Box -->
+    <path
+        android:fillColor="@android:color/transparent"
+        android:pathData="M34,48L34,78L74,78L74,48"
+        android:strokeWidth="3.5"
+        android:strokeColor="#FFFFFF"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <!-- Top lid -->
+    <path
+        android:fillColor="@android:color/transparent"
+        android:pathData="M30,48L54,38L78,48"
+        android:strokeWidth="3.5"
+        android:strokeColor="#FFFFFF"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <!-- Circle arrows (sync) -->
+    <path
+        android:fillColor="@android:color/transparent"
+        android:pathData="M30,30 A24,24 0,1,1 26,42"
+        android:strokeWidth="3"
+        android:strokeColor="#FFFFFF"
+        android:strokeLineCap="round" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M20,36L26,42L32,36" />
+</vector>
