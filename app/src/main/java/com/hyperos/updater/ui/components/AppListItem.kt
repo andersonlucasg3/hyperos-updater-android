@@ -111,7 +111,7 @@ private fun DetailRow(label: String, value: String) {
 fun SourceBadge(source: UpdateSource) {
     val (text, color) = when (source) {
         UpdateSource.APKMIRROR -> "APKMirror" to MaterialTheme.colorScheme.primary
-        UpdateSource.APKPURE -> "APKPure" to MaterialTheme.colorScheme.tertiary
+        UpdateSource.APKPURE -> "APKPure" to MaterialTheme.colorScheme.primary
         UpdateSource.APKCOMBO -> "APKCombo" to MaterialTheme.colorScheme.tertiary
         UpdateSource.TRACKER -> "System" to MaterialTheme.colorScheme.secondary
         UpdateSource.UNTRACKED -> "not tracked" to MaterialTheme.colorScheme.onSurfaceVariant
