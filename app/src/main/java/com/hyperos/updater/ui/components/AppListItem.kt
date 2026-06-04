@@ -112,7 +112,7 @@ fun SourceBadge(source: UpdateSource) {
     val (text, color) = when (source) {
         UpdateSource.APKMIRROR -> "APKMirror" to MaterialTheme.colorScheme.primary
         UpdateSource.APKPURE -> "APKPure" to MaterialTheme.colorScheme.tertiary
-        UpdateSource.APKCOMBO -> "APKCombo" to MaterialTheme.colorScheme.primaryContainer
+        UpdateSource.APKCOMBO -> "APKCombo" to MaterialTheme.colorScheme.tertiary
         UpdateSource.TRACKER -> "System" to MaterialTheme.colorScheme.secondary
         UpdateSource.UNTRACKED -> "not tracked" to MaterialTheme.colorScheme.onSurfaceVariant
     }
