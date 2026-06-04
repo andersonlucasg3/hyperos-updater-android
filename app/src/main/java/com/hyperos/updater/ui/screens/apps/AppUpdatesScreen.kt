@@ -10,6 +10,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
+import com.hyperos.updater.domain.model.AppUpdate
 import com.hyperos.updater.domain.model.UpdateSource
 import com.hyperos.updater.ui.components.AppListItem
 import com.hyperos.updater.ui.navigation.Screen
@@ -20,75 +21,47 @@ fun AppUpdatesScreen(
     navController: NavController,
     viewModel: AppUpdatesViewModel = hiltViewModel()
 ) {
-    val state by viewModel.state.collectAsState()
+    val cache by viewModel.cache.collectAsState()
+    val isScanning by viewModel.isScanning.collectAsState()
+    val error by viewModel.error.collectAsState()
 
-    LaunchedEffect(Unit) {
-        viewModel.checkAllApps()
+    val sortedUpdates by remember {
+        derivedStateOf {
+            cache.values.toList().sortedWith(
+                compareByDescending<AppUpdate> { it.updateSource != UpdateSource.UNTRACKED && it.currentVersion != it.latestVersion }
+                    .thenBy { it.appName.lowercase() }
+            )
+        }
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(title = { Text("App Updates") })
-        }
-    ) { padding ->
-        when {
-            state.isScanning -> {
-                Box(
-                    modifier = Modifier.fillMaxSize().padding(padding),
-                    contentAlignment = Alignment.Center
-                ) { CircularProgressIndicator() }
-            }
-            state.error != null -> {
-                Box(
-                    modifier = Modifier.fillMaxSize().padding(padding),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(state.error!!, color = MaterialTheme.colorScheme.error)
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Button(onClick = { viewModel.checkAllApps() }) {
-                            Text("Retry")
-                        }
-                    }
-                }
-            }
-            state.updates.isEmpty() -> {
-                Box(
-                    modifier = Modifier.fillMaxSize().padding(padding),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text("No apps found", style = MaterialTheme.typography.bodyLarge)
-                }
-            }
-            else -> {
-                val updatable = state.updates.count {
-                    it.updateSource != UpdateSource.UNTRACKED &&
-                            it.currentVersion != it.latestVersion
-                }
+    LaunchedEffect(Unit) { viewModel.checkAllApps() }
 
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize().padding(padding),
-                    contentPadding = PaddingValues(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
+    Scaffold(topBar = { TopAppBar(title = { Text("App Updates") }) }) { padding ->
+        when {
+            isScanning && cache.isEmpty() -> Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator() }
+            error != null -> Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(error!!, color = MaterialTheme.colorScheme.error)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Button(onClick = { viewModel.checkAllApps() }) { Text("Retry") }
+                } }
+            sortedUpdates.isEmpty() -> Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
+                Text("No apps found") }
+            else -> {
+                LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     item {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            Text("${state.updates.size} apps", style = MaterialTheme.typography.labelLarge)
-                            if (updatable > 0) {
-                                AssistChip(onClick = {}, label = { Text("$updatable updates") })
-                            }
+                        val updateCount = sortedUpdates.count { it.updateSource != UpdateSource.UNTRACKED && it.currentVersion != it.latestVersion }
+                        Row(Modifier.fillMaxWidth().padding(bottom = 8.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Text("${sortedUpdates.size} apps", style = MaterialTheme.typography.labelLarge)
+                            if (isScanning) CircularProgressIndicator(modifier = Modifier.size(16.dp))
+                            if (updateCount > 0) AssistChip(onClick = {}, label = { Text("$updateCount updates") })
                         }
                     }
-                    items(state.updates, key = { it.packageName + it.appType.name }) { update ->
-                        AppListItem(
-                            update = update,
-                            isDownloading = state.downloading.containsKey(update.packageName),
-                            onClick = { navController.navigate(Screen.AppDetail.createRoute(update.packageName)) },
-                            onInstall = { }
-                        )
+                    items(sortedUpdates, key = { it.packageName + it.appType.name }) { update ->
+                        AppListItem(update = update, isDownloading = false, onClick = {
+                            navController.navigate(Screen.AppDetail.createRoute(update.packageName))
+                        }, onInstall = { })
                     }
                 }
             }

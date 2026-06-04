@@ -1,5 +1,8 @@
 package com.hyperos.updater.domain.model
 
+import androidx.compose.runtime.Immutable
+
+@Immutable
 data class AppUpdate(
     val packageName: String,
     val appName: String,

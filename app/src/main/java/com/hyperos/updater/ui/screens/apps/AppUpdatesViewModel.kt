@@ -12,17 +12,14 @@ import com.hyperos.updater.domain.usecase.CheckSystemAppUpdatesUseCase
 import com.hyperos.updater.domain.usecase.CheckThirdPartyAppUpdatesUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 data class AppUpdatesUiState(
     val isScanning: Boolean = false,
     val updates: List<AppUpdate> = emptyList(),
-    val downloading: Map<String, Int> = emptyMap(),
     val error: String? = null
 )
 
@@ -34,25 +31,16 @@ class AppUpdatesViewModel @Inject constructor(
     val downloadManager: DownloadManager
 ) : ViewModel() {
 
-    // Persistent cache keyed by packageName — survives across scans
     private val _cache = MutableStateFlow<Map<String, AppUpdate>>(emptyMap())
     private val _isScanning = MutableStateFlow(false)
-    private val _downloading = MutableStateFlow<Map<String, Int>>(emptyMap())
     private val _error = MutableStateFlow<String?>(null)
     private val _pendingDlKey = MutableStateFlow<String?>(null)
 
-    val state: StateFlow<AppUpdatesUiState> = combine(
-        _cache, _isScanning, _downloading, _error
-    ) { cache, scanning, downloading, error ->
-        AppUpdatesUiState(
-            isScanning = scanning,
-            updates = sorted(cache.values.toList()),
-            downloading = downloading,
-            error = error
-        )
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), AppUpdatesUiState())
-
-    val pendingDownloadKey: StateFlow<String?> = _pendingDlKey
+    // Expose raw cache directly — sorting happens in Compose via derivedStateOf
+    val cache: StateFlow<Map<String, AppUpdate>> = _cache.asStateFlow()
+    val isScanning: StateFlow<Boolean> = _isScanning.asStateFlow()
+    val error: StateFlow<String?> = _error.asStateFlow()
+    val pendingDownloadKey: StateFlow<String?> = _pendingDlKey.asStateFlow()
 
     private var checkJob: kotlinx.coroutines.Job? = null
 
@@ -92,13 +80,11 @@ class AppUpdatesViewModel @Inject constructor(
         }
     }
 
-    /** Returns the URL that DownloadActivity should load to capture the download link */
     fun getDownloadPageUrl(update: AppUpdate): String {
         return when (update.updateSource) {
             UpdateSource.APKPURE -> "https://apkpure.com/apk/${update.packageName}"
             UpdateSource.APKCOMBO -> "https://apkcombo.com/search/${update.packageName}/download/apk"
             UpdateSource.APKMIRROR -> {
-                // APKMirror needs specific download page URL
                 val pageUrl = update.downloadUrl ?: return "https://www.apkmirror.com/?s=${update.packageName}&post_type=app_release"
                 val base = pageUrl.trimEnd('/')
                 val slug = base.split("/").last { it.isNotBlank() }
@@ -119,10 +105,4 @@ class AppUpdatesViewModel @Inject constructor(
     fun setPendingDownloadKey(key: String) {
         _pendingDlKey.value = key
     }
-
-    private fun sorted(list: List<AppUpdate>): List<AppUpdate> =
-        list.sortedWith(
-            compareByDescending<AppUpdate> { it.updateSource != UpdateSource.UNTRACKED && it.currentVersion != it.latestVersion }
-                .thenBy { it.appName.lowercase() }
-        )
 }

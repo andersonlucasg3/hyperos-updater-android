@@ -14,6 +14,7 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
+import com.hyperos.updater.domain.model.AppUpdate
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -38,14 +39,25 @@ fun HomeScreen(
     appViewModel: AppUpdatesViewModel = hiltViewModel(),
     searchViewModel: AppSearchViewModel = hiltViewModel()
 ) {
-    val appState by appViewModel.state.collectAsState()
     val otaState by homeViewModel.otaState.collectAsState()
     val deviceVersion by homeViewModel.currentVersion.collectAsState()
     val searchState by searchViewModel.state.collectAsState()
-    val downloads by appViewModel.downloadManager.downloads.collectAsState()
+    val appCache by appViewModel.cache.collectAsState()
+    val isScanning by appViewModel.isScanning.collectAsState()
+    val downloadState by appViewModel.downloadManager.downloads.collectAsState()
     var filterText by remember { mutableStateOf("") }
     val context = LocalContext.current
     var pendingKey by remember { mutableStateOf("") }
+
+    // Derive sorted list from cache — only recomputes when cache changes, not on download ticks
+    val sortedUpdates by remember {
+        derivedStateOf {
+            appCache.values.toList().sortedWith(
+                compareByDescending<AppUpdate> { it.updateSource != UpdateSource.UNTRACKED && it.currentVersion != it.latestVersion }
+                    .thenBy { it.appName.lowercase() }
+            )
+        }
+    }
 
     val downloadLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
@@ -73,7 +85,7 @@ fun HomeScreen(
             TopAppBar(
                 title = { Text("HyperOS Updater") },
                 actions = {
-                    val dlCount = downloads.count { it.value.progress.status.isOngoing() }
+                    val dlCount = downloadState.count { it.value.progress.status.isOngoing() }
                     IconButton(onClick = { navController.navigate(Screen.Downloads.route) }) {
                         BadgedBox(badge = { if (dlCount > 0) Badge { Text("$dlCount") } }) {
                             Icon(Icons.Default.Download, contentDescription = "Downloads")
@@ -205,7 +217,7 @@ fun HomeScreen(
                 items(searchState.results, key = { it.source.name + it.downloadPageUrl }) { result ->
                     var expanded by remember { mutableStateOf(false) }
                     val dlKey = result.source.name + result.appName
-                    val dl = downloads[dlKey]
+                    val dl = downloadState[dlKey]
 
                     Card(modifier = Modifier.fillMaxWidth().clickable { expanded = !expanded }) {
                         Column(modifier = Modifier.padding(12.dp)) {
@@ -277,9 +289,9 @@ fun HomeScreen(
                 Spacer(modifier = Modifier.height(8.dp))
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                     Text("App Updates", style = MaterialTheme.typography.titleLarge)
-                    if (appState.isScanning) CircularProgressIndicator(modifier = Modifier.size(16.dp))
+                    if (isScanning) CircularProgressIndicator(modifier = Modifier.size(16.dp))
                     else {
-                        val updateCount = appState.updates.count { it.updateSource != UpdateSource.UNTRACKED && it.currentVersion != it.latestVersion }
+                        val updateCount = sortedUpdates.count { it.updateSource != UpdateSource.UNTRACKED && it.currentVersion != it.latestVersion }
                         if (updateCount > 0) AssistChip(onClick = {}, label = { Text("$updateCount updates") })
                     }
                 }
@@ -295,9 +307,9 @@ fun HomeScreen(
                 )
             }
 
-            val filteredApps = appState.updates.filter { filterText.isBlank() || it.appName.contains(filterText, ignoreCase = true) || it.packageName.contains(filterText, ignoreCase = true) }
+            val filteredApps = sortedUpdates.filter { filterText.isBlank() || it.appName.contains(filterText, ignoreCase = true) || it.packageName.contains(filterText, ignoreCase = true) }
 
-            if (appState.isScanning && filteredApps.isEmpty()) {
+            if (isScanning && filteredApps.isEmpty()) {
                 item { Row(modifier = Modifier.padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                     CircularProgressIndicator(modifier = Modifier.size(16.dp)); Text("Scanning installed apps...") } }
             } else if (filteredApps.isEmpty()) {
@@ -305,7 +317,7 @@ fun HomeScreen(
             } else {
                 items(filteredApps, key = { it.packageName + it.appType.name }) { update ->
                     val dlKey = update.updateSource.name + update.appName
-                    val dl = downloads[dlKey]
+                    val dl = downloadState[dlKey]
                     var expanded by remember { mutableStateOf(false) }
                     val hasUpdate = update.currentVersion != update.latestVersion
 
