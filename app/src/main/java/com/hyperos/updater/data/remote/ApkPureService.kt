@@ -29,25 +29,20 @@ class ApkPureService @Inject constructor(
 
     suspend fun checkVersion(packageName: String): VersionResult? = withContext(Dispatchers.IO) {
         try {
-            val url = "https://d.apkpure.com/b/APK/$packageName?version=latest"
-            // Build a client that doesn't follow redirects to capture the 302 Location header
-            val noRedirectClient = okHttpClient.newBuilder().followRedirects(false).build()
-            val request = Request.Builder().url(url).head()
+            // Use the app detail page which has JSON version data embedded in HTML
+            val request = Request.Builder()
+                .url("https://apkpure.com/apk/$packageName")
                 .header("User-Agent", "Mozilla/5.0 (Linux; Android 14; Redmi 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36")
-                .header("Referer", "https://apkpure.com/")
-                .header("Origin", "https://apkpure.com")
                 .build()
-            val response = noRedirectClient.newCall(request).execute()
-            // Parse version from 302 Location header's filename parameter
-            val location = response.header("Location", "") ?: response.header("location", "") ?: ""
-            val filenameParam = Regex("""filename=([^&]+)""").find(location)?.groupValues?.get(1) ?: ""
-            val decoded = java.net.URLDecoder.decode(filenameParam, "UTF-8")
-            val version = Regex("""(\d+\.\d+(?:\.\d+)*)""").find(decoded)?.value
+            val response = okHttpClient.newCall(request).execute()
+            val html = response.body?.string() ?: return@withContext null
             response.close()
+            // Parse version from embedded JSON: "versionName":"X.Y.Z"
+            val version = Regex(""""versionName"\s*:\s*"(\d+\.\d+(?:\.\d+)*)"""").find(html)?.groupValues?.get(1)
+            val dlUrl = response.request.url.toString()
             if (version != null) {
                 Log.i("ApkPure", "v$version for $packageName")
-                // Build download URL from original request
-                VersionResult(version, url)
+                VersionResult(version, dlUrl)
             } else null
         } catch (e: Exception) {
             null
