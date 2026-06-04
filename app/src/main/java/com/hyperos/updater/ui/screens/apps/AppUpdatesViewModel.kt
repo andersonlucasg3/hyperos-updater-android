@@ -38,10 +38,6 @@ class AppUpdatesViewModel @Inject constructor(
     private val app: Application,
     private val checkSystemAppUpdatesUseCase: CheckSystemAppUpdatesUseCase,
     private val checkThirdPartyAppUpdatesUseCase: CheckThirdPartyAppUpdatesUseCase,
-    private val downloadUpdateUseCase: DownloadUpdateUseCase,
-    private val installApkUseCase: InstallApkUseCase,
-    private val apkPureService: ApkPureService,
-    private val apkComboService: ApkComboService,
     val downloadManager: DownloadManager
 ) : ViewModel() {
 
@@ -107,61 +103,26 @@ class AppUpdatesViewModel @Inject constructor(
     }
 
     fun downloadAndInstall(update: AppUpdate) {
-        viewModelScope.launch {
-            try {
-                // Download via APKPure CDN with headers that bypass Cloudflare
-                val apkUrl = when (update.updateSource) {
-                    UpdateSource.APKPURE -> "https://d.apkpure.com/b/APK/${update.packageName}?version=latest"
-                    UpdateSource.APKCOMBO -> {
-                        // APKCombo needs JS — open in browser
-                        val pageUrl = update.downloadUrl ?: "https://apkcombo.com/search/${update.packageName}"
-                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse("$pageUrl/download/apk"))
-                        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                        app.startActivity(intent)
-                        return@launch
-                    }
-                    UpdateSource.UNTRACKED -> {
-                        Log.d("AppVM", "No download source for untracked app")
-                        _error.value = "No download source available"
-                        return@launch
-                    }
-                    else -> update.downloadUrl
-                        ?: run {
-                            // Fallback: open in browser
-                            val pageUrl = "https://apkpure.com/apk/${update.packageName}"
-                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(pageUrl))
-                            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                            app.startActivity(intent)
-                            return@launch
-                        }
-                }
-
-                Log.d("AppVM", "Resolved APK URL: $apkUrl")
-
-                val filename = "${update.packageName}_${update.latestVersion}.apk"
-                downloadUpdateUseCase.download(apkUrl, filename, null).collect { progress ->
-                    val map = _downloading.value.toMutableMap()
-                    map[update.packageName] = progress.progress
-                    _downloading.value = map
-                }
-
-                val file = File(downloadsDir, filename)
-                if (!file.exists() || file.length() == 0L) {
-                    _error.value = "Download failed: empty file"
-                    return@launch
-                }
-
-                Log.d("AppVM", "Downloaded ${file.length()} bytes, installing...")
-                installApkUseCase(file, update.packageName, update.appType == AppType.SYSTEM)
-
-                val map = _downloading.value.toMutableMap()
-                map.remove(update.packageName)
-                _downloading.value = map
-            } catch (e: Exception) {
-                Log.e("AppVM", "Install failed", e)
-                _error.value = e.message ?: "Install failed"
+        val key = update.updateSource.name + update.appName
+        val url = when (update.updateSource) {
+            UpdateSource.APKPURE -> "https://d.apkpure.com/b/APK/${update.packageName}?version=latest"
+            UpdateSource.APKCOMBO -> {
+                val pageUrl = update.downloadUrl ?: "https://apkcombo.com/search/${update.packageName}"
+                val intent = Intent(Intent.ACTION_VIEW, Uri.parse("$pageUrl/download/apk"))
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                app.startActivity(intent)
+                return
+            }
+            else -> {
+                val pageUrl = "https://apkpure.com/apk/${update.packageName}"
+                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(pageUrl))
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                app.startActivity(intent)
+                return
             }
         }
+        val filename = "${update.packageName}_${update.latestVersion}.apk"
+        downloadManager.startDownload(url, filename, key, update.appName)
     }
 
     private fun sorted(list: List<AppUpdate>): List<AppUpdate> =
