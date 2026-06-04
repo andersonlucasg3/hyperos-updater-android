@@ -32,7 +32,7 @@ fun AppUpdatesScreen(
         }
     ) { padding ->
         when {
-            state.isLoading -> {
+            state.isScanning -> {
                 Box(
                     modifier = Modifier.fillMaxSize().padding(padding),
                     contentAlignment = Alignment.Center

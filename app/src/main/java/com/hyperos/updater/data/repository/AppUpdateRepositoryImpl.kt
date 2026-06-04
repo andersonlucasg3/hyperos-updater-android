@@ -166,8 +166,8 @@ class AppUpdateRepositoryImpl @Inject constructor(
     }
 
     private suspend fun tryApkPure(pkg: String): SourceResult? = try {
-        val r = apkPureService.search(pkg) ?: return null
-        SourceResult(r.versionName, r.versionCode, r.downloadUrl, r.fileSize, UpdateSource.APKPURE)
+        val r = apkPureService.checkVersion(pkg) ?: return null
+        SourceResult(r.versionName, 0L, r.downloadUrl, null, UpdateSource.APKPURE)
     } catch (_: Exception) { null }
 
     private suspend fun tryApkCombo(pkg: String): SourceResult? = try {

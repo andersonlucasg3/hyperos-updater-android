@@ -273,7 +273,7 @@ fun HomeScreen(
                 Spacer(modifier = Modifier.height(8.dp))
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                     Text("App Updates", style = MaterialTheme.typography.titleLarge)
-                    if (appState.isLoading) CircularProgressIndicator(modifier = Modifier.size(16.dp))
+                    if (appState.isScanning) CircularProgressIndicator(modifier = Modifier.size(16.dp))
                     else {
                         val updateCount = appState.updates.count { it.updateSource != UpdateSource.UNTRACKED && it.currentVersion != it.latestVersion }
                         if (updateCount > 0) AssistChip(onClick = {}, label = { Text("$updateCount updates") })
@@ -293,7 +293,7 @@ fun HomeScreen(
 
             val filteredApps = appState.updates.filter { filterText.isBlank() || it.appName.contains(filterText, ignoreCase = true) || it.packageName.contains(filterText, ignoreCase = true) }
 
-            if (appState.isLoading && filteredApps.isEmpty()) {
+            if (appState.isScanning && filteredApps.isEmpty()) {
                 item { Row(modifier = Modifier.padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                     CircularProgressIndicator(modifier = Modifier.size(16.dp)); Text("Scanning installed apps...") } }
             } else if (filteredApps.isEmpty()) {
