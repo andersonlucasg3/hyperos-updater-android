@@ -3,19 +3,13 @@ package com.hyperos.updater.ui.screens.apps
 import android.app.Application
 import android.content.Intent
 import android.net.Uri
-import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.hyperos.updater.data.remote.ApkComboService
-import com.hyperos.updater.data.remote.ApkPureService
 import com.hyperos.updater.domain.DownloadManager
-import com.hyperos.updater.domain.model.AppType
 import com.hyperos.updater.domain.model.AppUpdate
 import com.hyperos.updater.domain.model.UpdateSource
 import com.hyperos.updater.domain.usecase.CheckSystemAppUpdatesUseCase
 import com.hyperos.updater.domain.usecase.CheckThirdPartyAppUpdatesUseCase
-import com.hyperos.updater.domain.usecase.DownloadUpdateUseCase
-import com.hyperos.updater.domain.usecase.InstallApkUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -23,7 +17,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import java.io.File
 import javax.inject.Inject
 
 data class AppUpdatesUiState(
@@ -46,6 +39,7 @@ class AppUpdatesViewModel @Inject constructor(
     private val _isScanning = MutableStateFlow(false)
     private val _downloading = MutableStateFlow<Map<String, Int>>(emptyMap())
     private val _error = MutableStateFlow<String?>(null)
+    private val _pendingDlKey = MutableStateFlow<String?>(null)
 
     val state: StateFlow<AppUpdatesUiState> = combine(
         _cache, _isScanning, _downloading, _error
@@ -58,17 +52,16 @@ class AppUpdatesViewModel @Inject constructor(
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), AppUpdatesUiState())
 
-    private val downloadsDir = File(app.filesDir, "downloads").also { it.mkdirs() }
+    val pendingDownloadKey: StateFlow<String?> = _pendingDlKey
+
     private var checkJob: kotlinx.coroutines.Job? = null
 
     fun checkAllApps() {
         checkJob?.cancel()
-        // Show existing cache immediately — do NOT clear
         _isScanning.value = true
         _error.value = null
         checkJob = viewModelScope.launch {
             val scannedPackages = mutableSetOf<String>()
-
             val systemJob = launch {
                 checkSystemAppUpdatesUseCase().collect { update ->
                     scannedPackages.add(update.packageName)
@@ -81,11 +74,8 @@ class AppUpdatesViewModel @Inject constructor(
                     _cache.value = _cache.value + (update.packageName to update)
                 }
             }
-
             systemJob.join()
             thirdPartyJob.join()
-
-            // Remove cached entries for apps no longer installed
             _cache.value = _cache.value.filterKeys { it in scannedPackages }
             _isScanning.value = false
         }
@@ -102,27 +92,32 @@ class AppUpdatesViewModel @Inject constructor(
         }
     }
 
-    fun downloadAndInstall(update: AppUpdate) {
-        val key = update.updateSource.name + update.appName
-        val url = when (update.updateSource) {
-            UpdateSource.APKPURE -> "https://d.apkpure.com/b/APK/${update.packageName}?version=latest"
-            UpdateSource.APKCOMBO -> {
-                val pageUrl = update.downloadUrl ?: "https://apkcombo.com/search/${update.packageName}"
-                val intent = Intent(Intent.ACTION_VIEW, Uri.parse("$pageUrl/download/apk"))
-                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                app.startActivity(intent)
-                return
+    /** Returns the URL that DownloadActivity should load to capture the download link */
+    fun getDownloadPageUrl(update: AppUpdate): String {
+        return when (update.updateSource) {
+            UpdateSource.APKPURE -> "https://apkpure.com/apk/${update.packageName}"
+            UpdateSource.APKCOMBO -> "https://apkcombo.com/search/${update.packageName}/download/apk"
+            UpdateSource.APKMIRROR -> {
+                // APKMirror needs specific download page URL
+                val pageUrl = update.downloadUrl ?: return "https://www.apkmirror.com/?s=${update.packageName}&post_type=app_release"
+                val base = pageUrl.trimEnd('/')
+                val slug = base.split("/").last { it.isNotBlank() }
+                "$base/${slug.replace("-release", "-android-apk-download")}/"
             }
-            else -> {
-                val pageUrl = "https://apkpure.com/apk/${update.packageName}"
-                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(pageUrl))
-                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                app.startActivity(intent)
-                return
-            }
+            else -> "https://apkpure.com/apk/${update.packageName}"
         }
-        val filename = "${update.packageName}_${update.latestVersion}.apk"
-        downloadManager.startDownload(url, filename, key, update.appName)
+    }
+
+    fun onDownloadUrlCaptured(url: String) {
+        val key = _pendingDlKey.value ?: return
+        val filename = url.split("/").lastOrNull()?.substringBefore("?")
+            ?.takeIf { it.isNotBlank() } ?: "downloaded.apk"
+        downloadManager.startDownload(url, filename, key, key.removePrefix("APKMIRROR").removePrefix("APKPURE").removePrefix("APKCOMBO"))
+        _pendingDlKey.value = null
+    }
+
+    fun setPendingDownloadKey(key: String) {
+        _pendingDlKey.value = key
     }
 
     private fun sorted(list: List<AppUpdate>): List<AppUpdate> =

@@ -87,7 +87,7 @@ fun AppUpdatesScreen(
                             update = update,
                             isDownloading = state.downloading.containsKey(update.packageName),
                             onClick = { navController.navigate(Screen.AppDetail.createRoute(update.packageName)) },
-                            onInstall = { viewModel.downloadAndInstall(update) }
+                            onInstall = { }
                         )
                     }
                 }

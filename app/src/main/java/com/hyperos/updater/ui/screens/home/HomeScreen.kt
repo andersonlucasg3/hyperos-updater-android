@@ -51,8 +51,12 @@ fun HomeScreen(
         contract = ActivityResultContracts.StartActivityForResult()
     ) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
-            val url = result.data?.getStringExtra("downloadUrl")
-            if (url != null && pendingKey.isNotBlank()) {
+            val url = result.data?.getStringExtra("downloadUrl") ?: return@rememberLauncherForActivityResult
+            // Check app updates pending download first
+            val appKey = appViewModel.pendingDownloadKey.value
+            if (appKey != null) {
+                appViewModel.onDownloadUrlCaptured(url)
+            } else if (pendingKey.isNotBlank()) {
                 searchViewModel.downloadFromUrl(url, pendingKey, pendingKey.removePrefix("APKMIRROR"))
                 pendingKey = ""
             }
@@ -326,7 +330,14 @@ fun HomeScreen(
                                     }
                                 } else {
                                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                        if (hasUpdate) IconButton(onClick = { appViewModel.downloadAndInstall(update) }) {
+                                        if (hasUpdate) IconButton(onClick = {
+                                            val key = update.updateSource.name + update.appName
+                                            appViewModel.setPendingDownloadKey(key)
+                                            val dlPageUrl = appViewModel.getDownloadPageUrl(update)
+                                            val intent = Intent(context, com.hyperos.updater.ui.DownloadActivity::class.java)
+                                            intent.putExtra("url", dlPageUrl)
+                                            downloadLauncher.launch(intent)
+                                        }) {
                                             Icon(Icons.Default.Download, contentDescription = "Install") }
                                         if (update.downloadUrl != null) IconButton(onClick = { appViewModel.openSourcePage(update) }) {
                                             Icon(Icons.Default.OpenInBrowser, contentDescription = "Source", modifier = Modifier.size(20.dp)) }
