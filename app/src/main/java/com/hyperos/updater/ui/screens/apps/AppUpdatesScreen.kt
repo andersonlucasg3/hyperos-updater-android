@@ -21,13 +21,13 @@ fun AppUpdatesScreen(
     navController: NavController,
     viewModel: AppUpdatesViewModel = hiltViewModel()
 ) {
-    val cache by viewModel.cache.collectAsState()
+    val appList = viewModel.appList // SnapshotStateList — element-level tracking
     val isScanning by viewModel.isScanning.collectAsState()
     val error by viewModel.error.collectAsState()
 
     val sortedUpdates by remember {
         derivedStateOf {
-            cache.values.toList().sortedWith(
+            appList.sortedWith(
                 compareByDescending<AppUpdate> { it.updateSource != UpdateSource.UNTRACKED && it.currentVersion != it.latestVersion }
                     .thenBy { it.appName.lowercase() }
             )
@@ -38,7 +38,7 @@ fun AppUpdatesScreen(
 
     Scaffold(topBar = { TopAppBar(title = { Text("App Updates") }) }) { padding ->
         when {
-            isScanning && cache.isEmpty() -> Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
+            isScanning && sortedUpdates.isEmpty() -> Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator() }
             error != null -> Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {

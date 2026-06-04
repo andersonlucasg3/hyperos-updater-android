@@ -42,7 +42,7 @@ fun HomeScreen(
     val otaState by homeViewModel.otaState.collectAsState()
     val deviceVersion by homeViewModel.currentVersion.collectAsState()
     val searchState by searchViewModel.state.collectAsState()
-    val appCache by appViewModel.cache.collectAsState()
+    val appList = appViewModel.appList // SnapshotStateList — Compose tracks element-level changes
     val isScanning by appViewModel.isScanning.collectAsState()
     val downloadState by appViewModel.downloadManager.downloads.collectAsState()
     var filterText by remember { mutableStateOf("") }
@@ -50,13 +50,16 @@ fun HomeScreen(
     val context = LocalContext.current
     var pendingKey by remember { mutableStateOf("") }
 
-    // Derive sorted list from cache — only recomputes when cache changes, not on download ticks
-    val sortedUpdates by remember {
+    // Derive sorted + filtered list — only recomputes when appList or filter state changes
+    val displayList by remember {
         derivedStateOf {
-            appCache.values.toList().sortedWith(
+            appList.sortedWith(
                 compareByDescending<AppUpdate> { it.updateSource != UpdateSource.UNTRACKED && it.currentVersion != it.latestVersion }
                     .thenBy { it.appName.lowercase() }
-            )
+            ).filter { update ->
+                (filterText.isBlank() || update.appName.contains(filterText, ignoreCase = true) || update.packageName.contains(filterText, ignoreCase = true)) &&
+                (!showOnlyUpdates || (update.updateSource != UpdateSource.UNTRACKED && update.currentVersion != update.latestVersion))
+            }
         }
     }
 
@@ -292,7 +295,7 @@ fun HomeScreen(
                     Text("App Updates", style = MaterialTheme.typography.titleLarge)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                         if (isScanning) CircularProgressIndicator(modifier = Modifier.size(14.dp))
-                        val updateCount = sortedUpdates.count { it.updateSource != UpdateSource.UNTRACKED && it.currentVersion != it.latestVersion }
+                        val updateCount = displayList.count { it.updateSource != UpdateSource.UNTRACKED && it.currentVersion != it.latestVersion }
                         if (updateCount > 0) {
                             AssistChip(onClick = {}, label = { Text("$updateCount updates") })
                         }
@@ -317,18 +320,13 @@ fun HomeScreen(
                 )
             }
 
-            val filteredApps = sortedUpdates.filter { update ->
-                (filterText.isBlank() || update.appName.contains(filterText, ignoreCase = true) || update.packageName.contains(filterText, ignoreCase = true)) &&
-                (!showOnlyUpdates || (update.updateSource != UpdateSource.UNTRACKED && update.currentVersion != update.latestVersion))
-            }
-
-            if (isScanning && filteredApps.isEmpty()) {
+            if (isScanning && displayList.isEmpty()) {
                 item { Row(modifier = Modifier.padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                     CircularProgressIndicator(modifier = Modifier.size(16.dp)); Text("Scanning installed apps...") } }
-            } else if (filteredApps.isEmpty()) {
+            } else if (displayList.isEmpty()) {
                 item { Card(modifier = Modifier.fillMaxWidth()) { Text(if (filterText.isNotBlank()) "No apps matching \"$filterText\"" else "No apps found", modifier = Modifier.padding(16.dp)) } }
             } else {
-                items(filteredApps, key = { it.packageName + it.appType.name }) { update ->
+                items(displayList, key = { it.packageName + it.appType.name }) { update ->
                     val dlKey = update.updateSource.name + update.appName
                     val dl = downloadState[dlKey]
                     var expanded by remember { mutableStateOf(false) }

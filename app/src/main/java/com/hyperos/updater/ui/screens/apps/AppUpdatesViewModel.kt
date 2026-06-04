@@ -3,6 +3,7 @@ package com.hyperos.updater.ui.screens.apps
 import android.app.Application
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.runtime.mutableStateListOf
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.hyperos.updater.data.local.dao.TrackedAppDao
@@ -30,8 +31,11 @@ class AppUpdatesViewModel @Inject constructor(
     val downloadManager: DownloadManager
 ) : ViewModel() {
 
-    private val _cache = MutableStateFlow<Map<String, AppUpdate>>(emptyMap())
-    val cache: StateFlow<Map<String, AppUpdate>> = _cache.asStateFlow()
+    // Compose-optimized list: element-level change tracking, O(1) element updates
+    val appList = mutableStateListOf<AppUpdate>()
+    // Package → index for O(1) lookup
+    private val pkgIndex = mutableMapOf<String, Int>()
+
     private val _isScanning = MutableStateFlow(false)
     val isScanning: StateFlow<Boolean> = _isScanning.asStateFlow()
     private val _error = MutableStateFlow<String?>(null)
@@ -42,47 +46,27 @@ class AppUpdatesViewModel @Inject constructor(
     private var checkJob: kotlinx.coroutines.Job? = null
 
     init {
-        // Restore cache from Room on startup
         viewModelScope.launch {
             val saved = trackedAppDao.getAll()
             if (saved.isNotEmpty()) {
-                _cache.value = saved.map { entity ->
-                    entity.packageName to AppUpdate(
-                        packageName = entity.packageName,
-                        appName = entity.appName,
-                        currentVersion = entity.currentVersion,
-                        latestVersion = entity.latestVersion ?: entity.currentVersion,
-                        latestVersionCode = entity.latestVersionCode ?: 0L,
-                        fileSize = null,
-                        downloadUrl = null,
-                        changelog = null,
-                        publishedDate = null,
-                        updateSource = try { UpdateSource.valueOf(entity.updateSource) } catch (_: Exception) { UpdateSource.UNTRACKED },
-                        appType = try { AppType.valueOf(entity.appType) } catch (_: Exception) { AppType.THIRD_PARTY }
-                    )
-                }.toMap()
+                saved.forEach { entity ->
+                    val update = entityToAppUpdate(entity)
+                    pkgIndex[update.packageName] = appList.size
+                    appList.add(update)
+                }
             }
         }
-        // Watch for completed downloads to update the cache
         viewModelScope.launch {
             downloadManager.downloads.collect { downloads ->
                 downloads.forEach { (key, dl) ->
                     if (dl.progress.status == DownloadStatus.COMPLETED) {
-                        // Update installed app's currentVersion to latestVersion
-                        val current = _cache.value
-                        val update = current.values.find {
-                            (it.updateSource.name + it.appName) == key
+                        val idx = pkgIndex.values.firstOrNull { i ->
+                            val u = appList.getOrNull(i); u != null && (u.updateSource.name + u.appName) == key
                         } ?: return@forEach
-                        val updated = update.copy(currentVersion = update.latestVersion)
-                        _cache.value = _cache.value + (updated.packageName to updated)
-                        // Persist to Room
+                        val update = appList[idx]
+                        appList[idx] = update.copy(currentVersion = update.latestVersion)
                         viewModelScope.launch {
-                            val entity = trackedAppDao.getByPackage(updated.packageName)
-                            if (entity != null) {
-                                trackedAppDao.updateCurrentVersion(
-                                    updated.packageName, updated.latestVersion, System.currentTimeMillis()
-                                )
-                            }
+                            trackedAppDao.updateCurrentVersion(update.packageName, update.latestVersion, System.currentTimeMillis())
                         }
                         downloadManager.dismissDownload(key)
                     }
@@ -96,41 +80,51 @@ class AppUpdatesViewModel @Inject constructor(
         _isScanning.value = true
         _error.value = null
         checkJob = viewModelScope.launch {
-            val scannedPackages = mutableSetOf<String>()
+            val scanned = mutableSetOf<String>()
             val systemJob = launch {
-                checkSystemAppUpdatesUseCase().collect { update ->
-                    scannedPackages.add(update.packageName)
-                    _cache.value = _cache.value + (update.packageName to update)
-                }
+                checkSystemAppUpdatesUseCase().collect { update -> upsert(update); scanned.add(update.packageName) }
             }
             val thirdPartyJob = launch {
-                checkThirdPartyAppUpdatesUseCase().collect { update ->
-                    scannedPackages.add(update.packageName)
-                    _cache.value = _cache.value + (update.packageName to update)
-                }
+                checkThirdPartyAppUpdatesUseCase().collect { update -> upsert(update); scanned.add(update.packageName) }
             }
             systemJob.join()
             thirdPartyJob.join()
-            _cache.value = _cache.value.filterKeys { it in scannedPackages }
 
-            // Persist entire cache to Room
+            // Remove stale entries
+            val toRemove = appList.mapIndexedNotNull { i, u -> if (u.packageName !in scanned) i else null }.sortedDescending()
+            toRemove.forEach { i ->
+                val pkg = appList[i].packageName
+                pkgIndex.remove(pkg)
+                appList.removeAt(i)
+            }
+            // Fix indices after removals
+            pkgIndex.clear()
+            appList.forEachIndexed { i, u -> pkgIndex[u.packageName] = i }
+
+            // Persist
             val now = System.currentTimeMillis()
-            _cache.value.values.forEach { update ->
-                trackedAppDao.upsert(
-                    TrackedAppEntity(
-                        packageName = update.packageName,
-                        appName = update.appName,
-                        currentVersion = update.currentVersion,
-                        latestVersion = update.latestVersion,
-                        latestVersionCode = update.latestVersionCode,
-                        appType = update.appType.name,
-                        updateSource = update.updateSource.name,
-                        apkMirrorSlug = null,
-                        lastCheckedAt = now
-                    )
-                )
+            appList.forEach { update ->
+                trackedAppDao.upsert(TrackedAppEntity(
+                    packageName = update.packageName, appName = update.appName,
+                    currentVersion = update.currentVersion, latestVersion = update.latestVersion,
+                    latestVersionCode = update.latestVersionCode,
+                    appType = update.appType.name, updateSource = update.updateSource.name,
+                    apkMirrorSlug = null, lastCheckedAt = now
+                ))
             }
             _isScanning.value = false
+        }
+    }
+
+    private fun upsert(update: AppUpdate) {
+        val idx = pkgIndex[update.packageName]
+        if (idx != null && idx < appList.size && appList[idx].packageName == update.packageName) {
+            // Update in place — Compose tracks element-level changes
+            appList[idx] = update
+        } else {
+            // New entry
+            pkgIndex[update.packageName] = appList.size
+            appList.add(update)
         }
     }
 
@@ -168,4 +162,13 @@ class AppUpdatesViewModel @Inject constructor(
     fun setPendingDownloadKey(key: String) {
         _pendingDlKey.value = key
     }
+
+    private fun entityToAppUpdate(e: TrackedAppEntity) = AppUpdate(
+        packageName = e.packageName, appName = e.appName,
+        currentVersion = e.currentVersion, latestVersion = e.latestVersion ?: e.currentVersion,
+        latestVersionCode = e.latestVersionCode ?: 0L,
+        fileSize = null, downloadUrl = null, changelog = null, publishedDate = null,
+        updateSource = try { UpdateSource.valueOf(e.updateSource) } catch (_: Exception) { UpdateSource.UNTRACKED },
+        appType = try { AppType.valueOf(e.appType) } catch (_: Exception) { AppType.THIRD_PARTY }
+    )
 }
