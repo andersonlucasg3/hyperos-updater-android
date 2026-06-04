@@ -11,6 +11,7 @@ import com.hyperos.updater.data.remote.ApkPureService
 import com.hyperos.updater.domain.model.AppInfo
 import com.hyperos.updater.domain.model.AppType
 import com.hyperos.updater.domain.model.AppUpdate
+import com.hyperos.updater.domain.model.SourceVersion
 import com.hyperos.updater.domain.model.UpdateSource
 import com.hyperos.updater.domain.repository.AppUpdateRepository
 import com.hyperos.updater.util.VersionComparator
@@ -99,54 +100,29 @@ class AppUpdateRepositoryImpl @Inject constructor(
                         val pureResult = pureDeferred.await()
                         val comboResult = comboDeferred.await()
 
-                        // Pick the best result (highest version from any source)
-                        val best = pickBest(pureResult, comboResult)
-
-                        if (best != null && VersionComparator.isNewer(app.versionName, best.versionName)) {
-                            AppUpdate(
-                                packageName = app.packageName,
-                                appName = app.appName,
-                                currentVersion = app.versionName,
-                                latestVersion = best.versionName,
-                                latestVersionCode = best.versionCode,
-                                fileSize = best.fileSize,
-                                downloadUrl = best.downloadUrl,
-                                changelog = null,
-                                publishedDate = null,
-                                updateSource = best.source,
-                                appType = appType
-                            )
-                        } else if (pureResult != null || comboResult != null) {
-                            // Found on at least one source but not newer
-                            val any = pureResult ?: comboResult!!
-                            AppUpdate(
-                                packageName = app.packageName,
-                                appName = app.appName,
-                                currentVersion = app.versionName,
-                                latestVersion = app.versionName,
-                                latestVersionCode = app.versionCode,
-                                fileSize = null,
-                                downloadUrl = null,
-                                changelog = null,
-                                publishedDate = null,
-                                updateSource = any.source,
-                                appType = appType
-                            )
-                        } else {
-                            AppUpdate(
-                                packageName = app.packageName,
-                                appName = app.appName,
-                                currentVersion = app.versionName,
-                                latestVersion = app.versionName,
-                                latestVersionCode = app.versionCode,
-                                fileSize = null,
-                                downloadUrl = null,
-                                changelog = null,
-                                publishedDate = null,
-                                updateSource = UpdateSource.UNTRACKED,
-                                appType = appType
-                            )
+                        // Collect all source versions
+                        val sourceVersions = listOfNotNull(pureResult, comboResult).map {
+                            SourceVersion(it.source, it.versionName, it.downloadUrl)
                         }
+
+                        // Best = highest version from any source
+                        val best = pickBest(pureResult, comboResult)
+                        val foundSources = pureResult != null || comboResult != null
+
+                        AppUpdate(
+                            packageName = app.packageName,
+                            appName = app.appName,
+                            currentVersion = app.versionName,
+                            latestVersion = best?.versionName ?: app.versionName,
+                            latestVersionCode = best?.versionCode ?: app.versionCode,
+                            fileSize = best?.fileSize,
+                            downloadUrl = best?.downloadUrl,
+                            changelog = null,
+                            publishedDate = null,
+                            updateSource = best?.source ?: if (foundSources) pureResult?.source ?: comboResult!!.source else UpdateSource.UNTRACKED,
+                            appType = appType,
+                            sourceVersions = sourceVersions
+                        )
                     }
                 }
             }.forEach { deferred ->

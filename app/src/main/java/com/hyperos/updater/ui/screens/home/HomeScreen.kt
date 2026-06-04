@@ -379,8 +379,16 @@ fun HomeScreen(
                             }
                             if (expanded) { Spacer(modifier = Modifier.height(8.dp)); HorizontalDivider(); Spacer(modifier = Modifier.height(8.dp))
                                 Text("Package: ${update.packageName}", style = MaterialTheme.typography.bodySmall)
-                                Text("Current: ${update.currentVersion}", style = MaterialTheme.typography.bodySmall)
-                                if (hasUpdate) Text("Latest: ${update.latestVersion}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                                Text("Installed: ${update.currentVersion}", style = MaterialTheme.typography.bodySmall)
+                                // Show all available source versions
+                                update.sourceVersions.forEach { sv ->
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        SourceBadge(sv.source)
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(sv.version, style = MaterialTheme.typography.bodySmall,
+                                            color = if (sv.version != update.currentVersion) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                }
                             }
                         }
                     }
