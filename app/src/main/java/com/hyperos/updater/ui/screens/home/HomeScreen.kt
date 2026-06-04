@@ -46,6 +46,7 @@ fun HomeScreen(
     val isScanning by appViewModel.isScanning.collectAsState()
     val downloadState by appViewModel.downloadManager.downloads.collectAsState()
     var filterText by remember { mutableStateOf("") }
+    var showOnlyUpdates by remember { mutableStateOf(true) }
     val context = LocalContext.current
     var pendingKey by remember { mutableStateOf("") }
 
@@ -289,10 +290,19 @@ fun HomeScreen(
                 Spacer(modifier = Modifier.height(8.dp))
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                     Text("App Updates", style = MaterialTheme.typography.titleLarge)
-                    if (isScanning) CircularProgressIndicator(modifier = Modifier.size(16.dp))
-                    else {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        if (isScanning) CircularProgressIndicator(modifier = Modifier.size(14.dp))
                         val updateCount = sortedUpdates.count { it.updateSource != UpdateSource.UNTRACKED && it.currentVersion != it.latestVersion }
-                        if (updateCount > 0) AssistChip(onClick = {}, label = { Text("$updateCount updates") })
+                        if (updateCount > 0) {
+                            AssistChip(onClick = {}, label = { Text("$updateCount updates") })
+                        }
+                        // Toggle: show only updatable apps
+                        FilterChip(
+                            selected = showOnlyUpdates,
+                            onClick = { showOnlyUpdates = !showOnlyUpdates },
+                            label = { Text("Updatable") },
+                            leadingIcon = if (showOnlyUpdates) {{ Icon(Icons.Default.FilterList, contentDescription = null, modifier = Modifier.size(16.dp)) }} else null
+                        )
                     }
                 }
             }
@@ -307,7 +317,10 @@ fun HomeScreen(
                 )
             }
 
-            val filteredApps = sortedUpdates.filter { filterText.isBlank() || it.appName.contains(filterText, ignoreCase = true) || it.packageName.contains(filterText, ignoreCase = true) }
+            val filteredApps = sortedUpdates.filter { update ->
+                (filterText.isBlank() || update.appName.contains(filterText, ignoreCase = true) || update.packageName.contains(filterText, ignoreCase = true)) &&
+                (!showOnlyUpdates || (update.updateSource != UpdateSource.UNTRACKED && update.currentVersion != update.latestVersion))
+            }
 
             if (isScanning && filteredApps.isEmpty()) {
                 item { Row(modifier = Modifier.padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
