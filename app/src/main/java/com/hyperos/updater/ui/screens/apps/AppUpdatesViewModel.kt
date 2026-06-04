@@ -109,7 +109,7 @@ class AppUpdatesViewModel @Inject constructor(
     fun downloadAndInstall(update: AppUpdate) {
         viewModelScope.launch {
             try {
-                // Resolve actual APK download URL
+                // Download via APKPure CDN with headers that bypass Cloudflare
                 val apkUrl = when (update.updateSource) {
                     UpdateSource.APKPURE -> "https://d.apkpure.com/b/APK/${update.packageName}?version=latest"
                     UpdateSource.APKCOMBO -> {
@@ -120,9 +120,18 @@ class AppUpdatesViewModel @Inject constructor(
                         app.startActivity(intent)
                         return@launch
                     }
+                    UpdateSource.UNTRACKED -> {
+                        Log.d("AppVM", "No download source for untracked app")
+                        _error.value = "No download source available"
+                        return@launch
+                    }
                     else -> update.downloadUrl
                         ?: run {
-                            _error.value = "No download URL"
+                            // Fallback: open in browser
+                            val pageUrl = "https://apkpure.com/apk/${update.packageName}"
+                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(pageUrl))
+                            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            app.startActivity(intent)
                             return@launch
                         }
                 }
