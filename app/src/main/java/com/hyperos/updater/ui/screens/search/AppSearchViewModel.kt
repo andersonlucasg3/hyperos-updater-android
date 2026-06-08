@@ -37,7 +37,8 @@ class AppSearchViewModel @Inject constructor(
     val downloadManager: DownloadManager,
     private val apkMirrorService: ApkMirrorService,
     private val apkPureService: ApkPureService,
-    private val apkComboService: ApkComboService
+    private val apkComboService: ApkComboService,
+    private val memeOsService: com.hyperos.updater.data.remote.MemeOsService
 ) : ViewModel() {
 
     val state: StateFlow<AppSearchState>
@@ -57,14 +58,22 @@ class AppSearchViewModel @Inject constructor(
             val mirror = async { tryMirrorSearch(query) }
             val pure = async { tryPureSearch(query) }
             val combo = async { tryComboSearch(query) }
+            val memeos = async { tryMemeOsSearch(query) }
 
             var all = emptyList<SearchResult>()
             val m = mirror.await(); if (id == searchId) { all = m; _state.value = _state.value.copy(results = all) }
             val p = pure.await(); if (id == searchId) { all = (all + p).distinctBy { it.downloadPageUrl }; _state.value = _state.value.copy(results = all) }
             val c = combo.await(); if (id == searchId) { all = (all + c).distinctBy { it.downloadPageUrl }; _state.value = _state.value.copy(results = all) }
+            val e = memeos.await(); if (id == searchId) { all = (all + e).distinctBy { it.downloadPageUrl }; _state.value = _state.value.copy(results = all) }
             if (id == searchId) _state.value = _state.value.copy(isSearching = false)
         }
     }
+
+    private suspend fun tryMemeOsSearch(query: String): List<SearchResult> = try {
+        val r = memeOsService.searchByName(query)
+        if (r != null) listOf(SearchResult(r.appName, r.versionName, com.hyperos.updater.domain.model.UpdateSource.MEMEOS, r.downloadUrl, null, null))
+        else emptyList()
+    } catch (_: Exception) { emptyList() }
 
     fun downloadFromUrl(url: String, key: String, appName: String) {
         val filename = com.hyperos.updater.ui.screens.apps.AppUpdatesViewModel.extractFilename(url)
