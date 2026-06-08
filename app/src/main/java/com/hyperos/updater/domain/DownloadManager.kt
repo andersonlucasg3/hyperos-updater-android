@@ -145,7 +145,9 @@ class DownloadManager @Inject constructor(
             session.openWrite("base.apk", 0, file.length()).use { out ->
                 file.inputStream().use { it.copyTo(out) }
             }
-            session.commit(null)
+            val dummyIntent = Intent("com.hyperos.updater.INSTALL_DONE")
+            val pendingIntent = android.app.PendingIntent.getBroadcast(app, sessionId, dummyIntent, android.app.PendingIntent.FLAG_MUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT)
+            session.commit(pendingIntent.intentSender)
             session.close()
             Log.i("DownloadManager", "Session install $sessionId")
             null
@@ -183,7 +185,9 @@ class DownloadManager @Inject constructor(
                     apk.inputStream().use { out.write(it.readBytes()) }
                 }
             }
-            session.commit(null); session.close()
+            val dummyIntent = Intent("com.hyperos.updater.INSTALL_DONE")
+            val pendingIntent = android.app.PendingIntent.getBroadcast(app, sessionId, dummyIntent, android.app.PendingIntent.FLAG_MUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT)
+            session.commit(pendingIntent.intentSender); session.close()
             Log.i("DownloadManager", "Multi-session $sessionId: ${apkFiles.size} splits")
             null
         } catch (e: Exception) { e.message }
