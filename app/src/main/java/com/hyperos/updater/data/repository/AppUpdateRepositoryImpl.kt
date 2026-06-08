@@ -7,6 +7,7 @@ import com.hyperos.updater.data.local.dao.TrackedAppDao
 import com.hyperos.updater.data.remote.ApkComboResult
 import com.hyperos.updater.data.remote.ApkComboService
 import com.hyperos.updater.data.remote.ApkPureResult
+import com.hyperos.updater.data.remote.ApkMirrorService
 import com.hyperos.updater.data.remote.ApkPureService
 import com.hyperos.updater.data.remote.FDroidService
 import com.hyperos.updater.domain.model.AppInfo
@@ -35,7 +36,8 @@ class AppUpdateRepositoryImpl @Inject constructor(
     private val trackedAppDao: TrackedAppDao,
     private val apkPureService: ApkPureService,
     private val apkComboService: ApkComboService,
-    private val fDroidService: FDroidService
+    private val fDroidService: FDroidService,
+    private val apkMirrorService: ApkMirrorService
 ) : AppUpdateRepository {
 
     override suspend fun getInstalledApps(appType: AppType): List<AppInfo> =
@@ -87,7 +89,7 @@ class AppUpdateRepositoryImpl @Inject constructor(
         apps: List<AppInfo>,
         appType: AppType
     ): Flow<AppUpdate> = flow {
-        val semaphore = Semaphore(8) // 8 concurrent apps, each queries 2 sources
+        val semaphore = Semaphore(6) // 6 concurrent apps, each queries 4 sources
         val now = System.currentTimeMillis()
 
         coroutineScope {
@@ -96,16 +98,18 @@ class AppUpdateRepositoryImpl @Inject constructor(
                     semaphore.withPermit {
                         trackedAppDao.updateCurrentVersion(app.packageName, app.versionName, now)
 
-                        // Query all three sources in parallel
+                        // Query all four sources in parallel
                         val pureDeferred = async { tryApkPure(app.packageName) }
                         val comboDeferred = async { tryApkCombo(app.packageName) }
                         val fdroidDeferred = async { tryFDroid(app.packageName) }
+                        val mirrorDeferred = async { tryApkMirror(app) }
                         val pureResult = pureDeferred.await()
                         val comboResult = comboDeferred.await()
                         val fdroidResult = fdroidDeferred.await()
+                        val mirrorResult = mirrorDeferred.await()
 
                         // Collect all source versions
-                        val sourceVersions = listOfNotNull(pureResult, comboResult, fdroidResult).map {
+                        val sourceVersions = listOfNotNull(pureResult, comboResult, fdroidResult, mirrorResult).map {
                             SourceVersion(it.source, it.versionName, it.downloadUrl)
                         }
 
@@ -114,7 +118,7 @@ class AppUpdateRepositoryImpl @Inject constructor(
                             sourceVersions.any { VersionComparator.isNewer(app.versionName, it.version) }
 
                         // Best = highest version from any source
-                        val best = pickBest(pureResult, comboResult, fdroidResult)
+                        val best = pickBest(pureResult, comboResult, fdroidResult, mirrorResult)
                         val foundSources = sourceVersions.isNotEmpty()
 
                         // Use real versionCode from FDroid if available, else best source
@@ -145,9 +149,9 @@ class AppUpdateRepositoryImpl @Inject constructor(
     }
 
     private fun pickBest(
-        pure: SourceResult?, combo: SourceResult?, fdroid: SourceResult?
+        pure: SourceResult?, combo: SourceResult?, fdroid: SourceResult?, mirror: SourceResult?
     ): SourceResult? {
-        val list = listOfNotNull(pure, combo, fdroid)
+        val list = listOfNotNull(pure, combo, fdroid, mirror)
         if (list.isEmpty()) return null
         if (list.size == 1) return list.first()
         return list.maxWithOrNull { a, b ->
@@ -169,6 +173,17 @@ class AppUpdateRepositoryImpl @Inject constructor(
     private suspend fun tryFDroid(pkg: String): SourceResult? = try {
         val r = fDroidService.checkVersion(pkg) ?: return null
         SourceResult(r.versionName, r.versionCode, r.downloadUrl, null, UpdateSource.FDROID)
+    } catch (_: Exception) { null }
+
+    private suspend fun tryApkMirror(app: AppInfo): SourceResult? = try {
+        val items = apkMirrorService.searchByName(app.appName)
+        // Find the item whose name best matches the installed app
+        val match = items.firstOrNull { item ->
+            item.appName.lowercase().contains(app.appName.lowercase().take(4)) ||
+            app.appName.lowercase().contains(item.appName.lowercase().take(4))
+        } ?: items.firstOrNull() ?: return null
+        val version = match.version ?: return null
+        SourceResult(version, 0L, match.pageUrl, null, UpdateSource.APKMIRROR)
     } catch (_: Exception) { null }
 }
 
