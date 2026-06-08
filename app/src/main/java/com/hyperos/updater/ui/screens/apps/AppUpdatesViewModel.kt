@@ -139,18 +139,22 @@ class AppUpdatesViewModel @Inject constructor(
         } catch (e: Exception) { _error.value = "No browser available" }
     }
 
-    fun getDownloadPageUrl(update: AppUpdate): String {
-        return when (update.updateSource) {
-            UpdateSource.APKPURE -> "https://apkpure.com/apk/${update.packageName}"
-            UpdateSource.APKCOMBO -> "https://apkcombo.com/search/${update.packageName}/download/apk"
+    fun getDownloadPageUrl(update: AppUpdate): String = getSourcePageUrl(update.packageName, update.updateSource, update.downloadUrl)
+
+    /** Get the download page URL for a specific source. */
+    fun getSourcePageUrl(packageName: String, source: UpdateSource, sourceDownloadUrl: String?): String {
+        return when (source) {
+            UpdateSource.APKPURE -> "https://apkpure.com/apk/$packageName"
+            UpdateSource.APKCOMBO -> "https://apkcombo.com/search/$packageName/download/apk"
             UpdateSource.APKMIRROR -> {
-                val pageUrl = update.downloadUrl ?: return "https://www.apkmirror.com/?s=${update.packageName}&post_type=app_release"
+                val pageUrl = sourceDownloadUrl ?: return "https://www.apkmirror.com/?s=$packageName&post_type=app_release"
                 val base = pageUrl.trimEnd('/')
                 val slug = base.split("/").last { it.isNotBlank() }
                 "$base/${slug.replace("-release", "-android-apk-download")}/"
             }
-            UpdateSource.MEMEOS -> update.downloadUrl ?: "https://memeosupdates.com/apps/${update.packageName}"
-            else -> "https://apkpure.com/apk/${update.packageName}"
+            UpdateSource.MEMEOS -> sourceDownloadUrl ?: "https://memeosupdates.com/apps/$packageName"
+            UpdateSource.GITHUB, UpdateSource.FDROID -> sourceDownloadUrl ?: "https://apkpure.com/apk/$packageName"
+            else -> "https://apkpure.com/apk/$packageName"
         }
     }
 
@@ -158,7 +162,7 @@ class AppUpdatesViewModel @Inject constructor(
         val key = _pendingDlKey.value ?: return
         val filename = url.split("/").lastOrNull()?.substringBefore("?")
             ?.takeIf { it.isNotBlank() } ?: "downloaded.apk"
-        downloadManager.startDownload(url, filename, key, key.removePrefix("APKMIRROR").removePrefix("APKPURE").removePrefix("APKCOMBO"))
+        downloadManager.startDownload(url, filename, key, key.removePrefix("APKMIRROR").removePrefix("APKPURE").removePrefix("APKCOMBO").removePrefix("MEMEOS"))
         _pendingDlKey.value = null
     }
 

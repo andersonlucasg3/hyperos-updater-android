@@ -127,7 +127,7 @@ fun AppSearchScreen(
                                 } else {
                                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                         IconButton(onClick = {
-                                            if (result.source == UpdateSource.APKMIRROR) {
+                                            if (result.source == UpdateSource.APKMIRROR || result.source == UpdateSource.MEMEOS) {
                                                 // Skip WebView if APK already cached
                                                 if (viewModel.downloadManager.installCached(dlKey, result.appName)) return@IconButton
                                                 pendingKey = dlKey

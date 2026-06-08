@@ -249,7 +249,7 @@ fun HomeScreen(
                                 } else {
                                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                         IconButton(onClick = {
-                                            if (result.source == UpdateSource.APKMIRROR) {
+                                            if (result.source == UpdateSource.APKMIRROR || result.source == UpdateSource.MEMEOS) {
                                                 // Skip WebView if APK already cached
                                                 if (appViewModel.downloadManager.installCached(dlKey, result.appName)) return@IconButton
                                                 pendingKey = dlKey
@@ -392,11 +392,38 @@ fun HomeScreen(
                                 Text("Installed: ${update.currentVersion}", style = MaterialTheme.typography.bodySmall)
                                 // Show all available source versions
                                 update.sourceVersions.forEach { sv ->
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                    val svKey = sv.source.name + update.appName
+                                    val svDl = downloadState[svKey]
+                                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
                                         SourceBadge(sv.source)
                                         Spacer(modifier = Modifier.width(6.dp))
                                         Text(sv.version, style = MaterialTheme.typography.bodySmall,
-                                            color = if (sv.version != update.currentVersion) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+                                            color = if (sv.version != update.currentVersion) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.weight(1f))
+                                        // Per-source download button
+                                        if (sv.downloadUrl != null && sv.version != update.currentVersion) {
+                                            if (svDl != null && svDl.progress.status.isOngoing()) {
+                                                Text("${svDl.progress.progress}%", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                                            } else if (svDl?.progress?.status == DownloadStatus.COMPLETED) {
+                                                Icon(Icons.Default.CheckCircle, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+                                            } else {
+                                                IconButton(onClick = {
+                                                    val url = appViewModel.getSourcePageUrl(update.packageName, sv.source, sv.downloadUrl)
+                                                    val needsWebView = sv.source == UpdateSource.APKMIRROR || sv.source == UpdateSource.APKCOMBO || sv.source == UpdateSource.MEMEOS || sv.source == UpdateSource.APKPURE
+                                                    if (needsWebView) {
+                                                        appViewModel.setPendingDownloadKey(svKey)
+                                                        val intent = Intent(context, com.hyperos.updater.ui.DownloadActivity::class.java)
+                                                        intent.putExtra("url", url)
+                                                        downloadLauncher.launch(intent)
+                                                    } else {
+                                                        val filename = url.split("/").lastOrNull()?.substringBefore("?")?.takeIf { it.isNotBlank() } ?: "${update.packageName}.apk"
+                                                        appViewModel.downloadManager.startDownload(url, filename, svKey, update.appName)
+                                                    }
+                                                }, modifier = Modifier.size(32.dp)) {
+                                                    Icon(Icons.Default.Download, contentDescription = "Download from ${sv.source.name}", modifier = Modifier.size(18.dp))
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                                 Spacer(modifier = Modifier.height(4.dp))
