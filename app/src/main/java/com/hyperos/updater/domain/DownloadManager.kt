@@ -5,6 +5,7 @@ import android.content.Intent
 import android.content.pm.PackageInstaller
 import android.net.Uri
 import android.os.Build
+import android.os.Environment
 import android.util.Log
 import androidx.core.content.FileProvider
 import com.hyperos.updater.ui.components.DownloadProgress
@@ -38,7 +39,7 @@ class DownloadManager @Inject constructor(
     val downloads: StateFlow<Map<String, ActiveDownload>> = _downloads
 
     private val activeJobs = mutableMapOf<String, Job>()
-    private val downloadsDir = File(app.filesDir, "downloads").also { it.mkdirs() }
+    private val downloadsDir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "HyperOSUpdater").also { it.mkdirs() }
 
     fun startDownload(url: String, fileName: String, key: String, appName: String) {
         activeJobs[key]?.cancel()
@@ -59,17 +60,23 @@ class DownloadManager @Inject constructor(
                 }
 
                 val file = File(downloadsDir, fileName)
+                Log.i("DownloadManager", "Download complete: ${file.absolutePath} (${file.length()} bytes)")
                 _downloads.update { it + (key to ActiveDownload(key, appName, fileName, DownloadProgress(fileName = fileName, status = DownloadStatus.INSTALLING))) }
                 val ext = fileName.substringAfterLast('.', "apk")
-                val error = when (ext) {
+                val installResult = when (ext) {
                     "apk" -> installApk(file)
                     "apkm", "xapk", "apks" -> installSplitApk(file)
                     "aab" -> "AAB cannot be installed directly"
                     else -> installApk(file)
                 }
+                val finalStatus = when {
+                    installResult == null -> DownloadStatus.COMPLETED       // Session or Shizuku confirmed
+                    installResult == "awaiting_user" -> DownloadStatus.AWAITING_INSTALL // PackageInstaller opened
+                    else -> DownloadStatus.ERROR
+                }
+                Log.i("DownloadManager", "Install result: $installResult → status=$finalStatus")
                 _downloads.update { it + (key to ActiveDownload(key, appName, fileName,
-                    if (error == null) DownloadProgress(fileName = fileName, status = DownloadStatus.COMPLETED)
-                    else DownloadProgress(fileName = fileName, status = DownloadStatus.ERROR))) }
+                    DownloadProgress(fileName = fileName, status = finalStatus))) }
             } catch (e: Exception) {
                 Log.e("DownloadManager", "Download failed: $key", e)
                 _downloads.update { it + (key to ActiveDownload(key, appName, fileName, DownloadProgress(fileName = fileName, status = DownloadStatus.ERROR))) }
@@ -124,14 +131,15 @@ class DownloadManager @Inject constructor(
                 }
             }
 
-            // 3. Fallback: system package installer
+            // 3. Fallback: system package installer — user must confirm, return "awaiting"
             val uri = FileProvider.getUriForFile(app, "${app.packageName}.fileprovider", file)
             val intent = Intent(Intent.ACTION_VIEW).apply {
                 setDataAndType(uri, "application/vnd.android.package-archive")
                 flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK
             }
             app.startActivity(intent)
-            return null
+            Log.i("DownloadManager", "PackageInstaller opened for ${file.name}")
+            return "awaiting_user" // Signal: install requires user confirmation
         } catch (e: Exception) { return "Install error: ${e.message}" }
     }
 

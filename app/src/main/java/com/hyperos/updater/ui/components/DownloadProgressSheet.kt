@@ -23,11 +23,11 @@ data class DownloadProgress(
 )
 
 enum class DownloadStatus {
-    PREPARING, DOWNLOADING, COMPLETED, INSTALLING, ERROR, CANCELLED
+    PREPARING, DOWNLOADING, COMPLETED, INSTALLING, AWAITING_INSTALL, ERROR, CANCELLED
 }
 
 fun DownloadStatus.isOngoing() = this == DownloadStatus.PREPARING || this == DownloadStatus.DOWNLOADING || this == DownloadStatus.INSTALLING
-fun DownloadStatus.isTerminal() = this == DownloadStatus.COMPLETED || this == DownloadStatus.ERROR || this == DownloadStatus.CANCELLED
+fun DownloadStatus.isTerminal() = this == DownloadStatus.COMPLETED || this == DownloadStatus.AWAITING_INSTALL || this == DownloadStatus.ERROR || this == DownloadStatus.CANCELLED
 
 @Composable
 fun DownloadProgressSheet(
@@ -50,7 +50,7 @@ fun DownloadProgressSheet(
             // Status icon
             Icon(
                 when (progress.status) {
-                    DownloadStatus.PREPARING, DownloadStatus.DOWNLOADING, DownloadStatus.INSTALLING -> Icons.Default.Download
+                    DownloadStatus.PREPARING, DownloadStatus.DOWNLOADING, DownloadStatus.INSTALLING, DownloadStatus.AWAITING_INSTALL -> Icons.Default.Download
                     DownloadStatus.COMPLETED -> Icons.Default.CheckCircle
                     DownloadStatus.ERROR -> Icons.Default.Error
                     DownloadStatus.CANCELLED -> Icons.Default.Cancel
@@ -72,7 +72,8 @@ fun DownloadProgressSheet(
                     DownloadStatus.PREPARING -> "Preparing download..."
                     DownloadStatus.DOWNLOADING -> "Downloading ${progress.fileName}"
                     DownloadStatus.INSTALLING -> "Installing..."
-                    DownloadStatus.COMPLETED -> "Download complete"
+                    DownloadStatus.AWAITING_INSTALL -> "Tap to install"
+                    DownloadStatus.COMPLETED -> "Install complete"
                     DownloadStatus.ERROR -> "Download failed"
                     DownloadStatus.CANCELLED -> "Download cancelled"
                 },
