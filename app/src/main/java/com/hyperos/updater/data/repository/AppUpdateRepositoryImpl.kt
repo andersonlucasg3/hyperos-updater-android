@@ -65,10 +65,13 @@ class AppUpdateRepositoryImpl @Inject constructor(
                 }
                 if (!matches) return@mapNotNull null
 
+                val version = pkg.versionName
+                if (version == null || version.isBlank() || version.all { it == '0' || it == '.' }) return@mapNotNull null
+
                 AppInfo(
                     packageName = pkg.packageName,
                     appName = info.loadLabel(pm)?.toString() ?: pkg.packageName,
-                    versionName = pkg.versionName ?: "0",
+                    versionName = version,
                     versionCode = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
                         pkg.longVersionCode
                     } else {

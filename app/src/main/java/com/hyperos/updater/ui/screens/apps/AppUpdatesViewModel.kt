@@ -53,8 +53,10 @@ class AppUpdatesViewModel @Inject constructor(
             if (saved.isNotEmpty()) {
                 saved.forEach { entity ->
                     val update = entityToAppUpdate(entity)
-                    pkgIndex[update.packageName] = appList.size
-                    appList.add(update)
+                    // Reset latestVersion until fresh scan confirms updates
+                    val neutral = update.copy(latestVersion = update.currentVersion)
+                    pkgIndex[neutral.packageName] = appList.size
+                    appList.add(neutral)
                 }
             }
         }
