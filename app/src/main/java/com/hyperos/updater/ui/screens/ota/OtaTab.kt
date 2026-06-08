@@ -138,20 +138,21 @@ fun OtaTab(
                             }
                             Spacer(modifier = Modifier.height(16.dp))
 
-                            // Download button
-                            if (s.update.downloadUrl != null) {
-                                Button(onClick = {
-                                    viewModel.downloadUpdate(s.update.downloadUrl, s.update.filename ?: "update.zip", s.update.md5)
-                                }) {
-                                    Text(if (s.update.fileSize > 0) "Download (${s.update.fileSize.toHumanReadableSize()})" else "Download")
-                                }
-                            } else if (s.update.source == OtaSource.MEMEOS) {
+                            // Download button — direct for Xiaomi API, WebView for MemeOs
+                            if (s.update.source == OtaSource.MEMEOS) {
+                                // MemeOs page is JS-rendered — open in WebView for user to download
                                 OutlinedButton(onClick = {
                                     val intent = Intent(context, DownloadActivity::class.java)
                                     intent.putExtra("url", s.update.downloadUrl ?: "https://memeosupdates.com/hyperos/")
                                     context.startActivity(intent)
                                 }) {
                                     Text("Open Download Page")
+                                }
+                            } else if (s.update.downloadUrl != null) {
+                                Button(onClick = {
+                                    viewModel.downloadUpdate(s.update.downloadUrl, s.update.filename ?: "update.zip", s.update.md5)
+                                }) {
+                                    Text(if (s.update.fileSize > 0) "Download (${s.update.fileSize.toHumanReadableSize()})" else "Download")
                                 }
                             } else {
                                 Text("No download URL available", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
