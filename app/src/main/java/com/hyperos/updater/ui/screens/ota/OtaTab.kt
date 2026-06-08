@@ -1,7 +1,10 @@
 package com.hyperos.updater.ui.screens.ota
 
+import android.content.Intent
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Refresh
@@ -11,11 +14,35 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.hyperos.updater.domain.model.OtaSource
 import com.hyperos.updater.domain.model.UpdateState
+import com.hyperos.updater.ui.DownloadActivity
 import com.hyperos.updater.ui.components.ShizukuStatusIcon
 import com.hyperos.updater.util.toHumanReadableSize
+
+@Composable
+fun OtaSourceBadge(source: OtaSource) {
+    val (text, color) = when (source) {
+        OtaSource.XIAOMI_API -> "Xiaomi API" to Color(0xFFFF6F00)
+        OtaSource.MEMEOS -> "MemeOS" to Color(0xFFE53935)
+    }
+    Surface(
+        color = color.copy(alpha = 0.12f),
+        shape = RoundedCornerShape(4.dp)
+    ) {
+        Text(
+            text, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+            color = color, fontSize = 10.sp, fontWeight = FontWeight.Bold
+        )
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -24,6 +51,7 @@ fun OtaTab(
 ) {
     val state by viewModel.state.collectAsState()
     val currentVersion by viewModel.currentVersion.collectAsState()
+    val context = LocalContext.current
 
     Scaffold(
         topBar = {
@@ -62,6 +90,9 @@ fun OtaTab(
 
             when (val s = state) {
                 is UpdateState.Idle -> {
+                    Spacer(modifier = Modifier.height(32.dp))
+                    Text("Up to date", style = MaterialTheme.typography.bodyLarge)
+                    Spacer(modifier = Modifier.height(16.dp))
                     Button(onClick = { viewModel.checkForUpdates() }) {
                         Text("Check for Updates")
                     }
@@ -80,22 +111,50 @@ fun OtaTab(
                             Text("Update Available", style = MaterialTheme.typography.titleLarge)
                             Spacer(modifier = Modifier.height(8.dp))
                             Text("Version: ${s.update.version}", style = MaterialTheme.typography.bodyLarge)
-                            Text("Size: ${s.update.fileSize.toHumanReadableSize()}", style = MaterialTheme.typography.bodyMedium)
-                            s.update.branch?.let { Text("Branch: $it", style = MaterialTheme.typography.bodySmall) }
+                            if (s.update.fileSize > 0) Text("Size: ${s.update.fileSize.toHumanReadableSize()}", style = MaterialTheme.typography.bodyMedium)
+                            s.update.branch?.takeIf { it.isNotBlank() }?.let { Text("Branch: $it", style = MaterialTheme.typography.bodySmall) }
                             s.update.publishedDate?.let { Text("Published: $it", style = MaterialTheme.typography.bodySmall) }
-                            s.update.changelog?.let {
+
+                            // Source badges
+                            if (s.update.otaSources.isNotEmpty()) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text("Sources:", style = MaterialTheme.typography.labelMedium)
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    s.update.otaSources.forEach { src ->
+                                        OtaSourceBadge(src.source)
+                                    }
+                                }
+                                s.update.otaSources.forEach { src ->
+                                    Text("  ${src.source.name}: ${src.version}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
+
+                            s.update.changelog?.takeIf { it.isNotBlank() }?.let {
                                 Spacer(modifier = Modifier.height(8.dp))
                                 Text("Changelog:", style = MaterialTheme.typography.titleMedium)
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(it, style = MaterialTheme.typography.bodySmall)
                             }
                             Spacer(modifier = Modifier.height(16.dp))
-                            s.update.downloadUrl?.let { url ->
+
+                            // Download button
+                            if (s.update.downloadUrl != null) {
                                 Button(onClick = {
-                                    viewModel.downloadUpdate(url, s.update.filename ?: "update.zip", s.update.md5)
+                                    viewModel.downloadUpdate(s.update.downloadUrl, s.update.filename ?: "update.zip", s.update.md5)
                                 }) {
-                                    Text("Download (${s.update.fileSize.toHumanReadableSize()})")
+                                    Text(if (s.update.fileSize > 0) "Download (${s.update.fileSize.toHumanReadableSize()})" else "Download")
                                 }
+                            } else if (s.update.source == OtaSource.MEMEOS) {
+                                OutlinedButton(onClick = {
+                                    val intent = Intent(context, DownloadActivity::class.java)
+                                    intent.putExtra("url", s.update.downloadUrl ?: "https://memeosupdates.com/hyperos/")
+                                    context.startActivity(intent)
+                                }) {
+                                    Text("Open Download Page")
+                                }
+                            } else {
+                                Text("No download URL available", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
                             }
                         }
                     }
