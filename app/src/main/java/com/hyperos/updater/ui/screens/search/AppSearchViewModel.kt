@@ -67,8 +67,7 @@ class AppSearchViewModel @Inject constructor(
     }
 
     fun downloadFromUrl(url: String, key: String, appName: String) {
-        val filename = url.split("/").lastOrNull()?.substringBefore("?")
-            ?.takeIf { it.isNotBlank() } ?: "downloaded.apk"
+        val filename = com.hyperos.updater.ui.screens.apps.AppUpdatesViewModel.extractFilename(url)
         downloadManager.startDownload(url, filename, key, appName)
     }
 

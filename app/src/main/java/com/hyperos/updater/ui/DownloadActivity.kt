@@ -135,13 +135,12 @@ class DownloadActivity : Activity() {
                 override fun shouldOverrideUrlLoading(view: WebView?, requestUrl: String?): Boolean {
                     Log.i("DownloadActivity", "Navigate: $requestUrl")
                     if (requestUrl == null) return false
-                    // Only capture external CDN URLs, not page navigation
-                    val isCdn = requestUrl.contains("downloadr") ||
-                            requestUrl.endsWith(".apk") || requestUrl.endsWith(".xapk") ||
+                    // Only capture final APK file URLs and known-good CDNs (Cloudflare R2)
+                    val isApkUrl = requestUrl.endsWith(".apk") || requestUrl.endsWith(".xapk") ||
                             requestUrl.endsWith(".apks") || requestUrl.endsWith(".apkm") ||
-                            requestUrl.endsWith(".aab") || requestUrl.contains("cdn.") ||
-                            requestUrl.contains("/apk-download/")
-                    if (isCdn && requestUrl != url && !requestUrl.startsWith("https://www.apkmirror.com/")) {
+                            requestUrl.endsWith(".aab")
+                    val isR2 = requestUrl.contains("cloudflarestorage.com")
+                    if ((isApkUrl || isR2) && requestUrl != url) {
                         Log.i("DownloadActivity", "CDN: $requestUrl")
                         capture(requestUrl)
                         return true

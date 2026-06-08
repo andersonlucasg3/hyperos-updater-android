@@ -160,10 +160,27 @@ class AppUpdatesViewModel @Inject constructor(
 
     fun onDownloadUrlCaptured(url: String) {
         val key = _pendingDlKey.value ?: return
-        val filename = url.split("/").lastOrNull()?.substringBefore("?")
-            ?.takeIf { it.isNotBlank() } ?: "downloaded.apk"
+        val filename = extractFilename(url)
         downloadManager.startDownload(url, filename, key, key.removePrefix("APKMIRROR").removePrefix("APKPURE").removePrefix("APKCOMBO").removePrefix("MEMEOS"))
         _pendingDlKey.value = null
+    }
+
+    companion object {
+        /** Extract a usable filename from a download URL, handling CDN redirect URLs. */
+        fun extractFilename(url: String): String {
+            // Try _fn query param (base64-encoded filename used by some CDNs)
+            val fnParam = Regex("[?&]_fn=([^&]+)").find(url)?.groupValues?.get(1)
+            if (fnParam != null) {
+                try {
+                    val decoded = android.util.Base64.decode(fnParam, android.util.Base64.URL_SAFE)
+                    val name = String(decoded, Charsets.UTF_8).replace("+", " ")
+                    if (name.isNotBlank()) return name
+                } catch (_: Exception) { }
+            }
+            // Fallback: last path segment before query
+            return url.split("/").lastOrNull()?.substringBefore("?")
+                ?.takeIf { it.isNotBlank() } ?: "downloaded.apk"
+        }
     }
 
     fun setPendingDownloadKey(key: String) {
