@@ -29,8 +29,8 @@ class CheckOtaUpdateUseCase @Inject constructor(
             isGlobal = isGlobal
         )
 
-        // Check MemeOs as additional source
-        val memeOsResult = memeOsOtaService.checkUpdate(device.codename)
+        // Check MemeOs as additional source (region-aware)
+        val memeOsResult = memeOsOtaService.checkUpdate(device.codename, device.miuiVersion)
         val memeOsUpdate = if (memeOsResult != null) {
             OtaUpdate(
                 version = memeOsResult.versionName,

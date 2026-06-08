@@ -34,7 +34,8 @@ class OtaViewModel @Inject constructor(
     val hasChecked: StateFlow<Boolean> = _hasChecked
 
     private val downloadsDir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "HyperOSUpdater").also { it.mkdirs() }
-    private var lastAvailableUpdate: OtaUpdate? = null
+    @Volatile var lastAvailableUpdate: OtaUpdate? = null
+        private set
 
     init {
         loadDeviceInfo()

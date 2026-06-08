@@ -195,8 +195,20 @@ fun OtaTab(
                     Spacer(modifier = Modifier.height(8.dp))
                     Text("File saved to Downloads/HyperOSUpdater", style = MaterialTheme.typography.bodyMedium)
                     Spacer(modifier = Modifier.height(12.dp))
-                    OutlinedButton(onClick = { viewModel.retryDownload() }) {
-                        Text("Re-download")
+                    // Re-download: use WebView for MemeOs, direct for Xiaomi API
+                    val lastUpdate = (state as UpdateState.ReadyToInstall).let { viewModel.lastAvailableUpdate }
+                    if (lastUpdate?.source == OtaSource.MEMEOS) {
+                        OutlinedButton(onClick = {
+                            val intent = Intent(context, DownloadActivity::class.java)
+                            intent.putExtra("url", lastUpdate.downloadUrl ?: "https://memeosupdates.com/hyperos/")
+                            otaDownloadLauncher.launch(intent)
+                        }) {
+                            Text("Open Download Page")
+                        }
+                    } else {
+                        OutlinedButton(onClick = { viewModel.retryDownload() }) {
+                            Text("Re-download")
+                        }
                     }
                 }
                 is UpdateState.Installing -> {
