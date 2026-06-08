@@ -61,18 +61,20 @@ class MemeOsService @Inject constructor(
             val html = response.body?.string() ?: return@withContext null
 
             // Extract first valid app link: href="/apps/{pkg}" (skip JS template placeholders like ${...})
-            val linkRegex = Regex("""href="/apps/(com\.[^"]+)"[^>]*>([^<]+)</a>""")
+            val linkRegex = Regex("""/apps/([a-zA-Z][^"'{}\s]+)""")
             val matches = linkRegex.findAll(html).toList()
             if (matches.isEmpty()) {
-                Log.d("MemeOs", "No results for '$query'")
+                Log.d("MemeOs", "No results for '$query' (html=${html.length} bytes)")
                 return@withContext null
             }
+            Log.d("MemeOs", "Found ${matches.size} app links for '$query'")
 
-            // Use the first match
-            val pkg = matches.first().groupValues[1]
-            var appName = matches.first().groupValues[2].trim()
-            if (appName.startsWith("{") || appName.isBlank()) appName = query
-
+            // Use the first non-template match
+            val pkg = matches.firstOrNull { !it.value.contains("{") }?.groupValues?.get(1) ?: run {
+                Log.d("MemeOs", "All results are templates for '$query'")
+                return@withContext null
+            }
+            var appName = query
             val downloadUrl = "https://memeosupdates.com/apps/$pkg"
 
             // Fetch the app detail page to get version and proper name
@@ -88,7 +90,7 @@ class MemeOsService @Inject constructor(
             val titleName = titleRegex.find(detailHtml)?.groupValues?.get(1)?.trim()
             if (titleName != null) appName = titleName
 
-            Log.i("MemeOs", "searchByName: $appName ${if (version != null) "v$version" else "(no version)"} → $downloadUrl")
+            Log.i("MemeOs", "searchByName: $appName ${if (version != null) "v$version" else ""} → $downloadUrl")
             MemeOsResult(appName, version ?: "", downloadUrl)
         } catch (e: Exception) {
             Log.d("MemeOs", "searchByName error: ${e.message}")

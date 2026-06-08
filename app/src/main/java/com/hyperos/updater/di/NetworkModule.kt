@@ -30,7 +30,7 @@ object NetworkModule {
         .addInterceptor { chain ->
             val original = chain.request()
             val builder = original.newBuilder()
-                .header("User-Agent", "Mozilla/5.0 (Linux; Android 15; Redmi 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36")
+                .header("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36")
             // Add Referer+Origin for APKPure CDN to bypass Cloudflare
             if (original.url.host.contains("apkpure.com") || original.url.host.contains("d.apkpure.com")) {
                 builder.header("Referer", "https://apkpure.com/")

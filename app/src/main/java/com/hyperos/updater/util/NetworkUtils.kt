@@ -13,6 +13,6 @@ object NetworkUtils {
         return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
     }
 
-    const val USER_AGENT = "HyperOS-Updater/1.0"
+    const val USER_AGENT = "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36"
     const val APKMIRROR_USER_AGENT = "APKUpdater-v3.0.3"
 }
