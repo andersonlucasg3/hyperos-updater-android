@@ -1,8 +1,10 @@
 package com.hyperos.updater.ui.screens.ota
 
 import android.app.Application
+import android.os.Environment
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.hyperos.updater.domain.model.OtaUpdate
 import com.hyperos.updater.domain.model.UpdateState
 import com.hyperos.updater.domain.usecase.CheckOtaUpdateUseCase
 import com.hyperos.updater.domain.usecase.DownloadUpdateUseCase
@@ -28,7 +30,8 @@ class OtaViewModel @Inject constructor(
     private val _currentVersion = MutableStateFlow("")
     val currentVersion: StateFlow<String> = _currentVersion
 
-    private val downloadsDir = File(app.filesDir, "downloads").also { it.mkdirs() }
+    private val downloadsDir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "HyperOSUpdater").also { it.mkdirs() }
+    private var lastAvailableUpdate: OtaUpdate? = null
 
     init {
         loadDeviceInfo()
@@ -46,6 +49,10 @@ class OtaViewModel @Inject constructor(
             _state.value = UpdateState.Checking
             try {
                 val result = checkOtaUpdateUseCase()
+                // Cache the update for retry
+                if (result is UpdateState.Available) {
+                    lastAvailableUpdate = result.update
+                }
                 _state.value = result
             } catch (e: Exception) {
                 _state.value = UpdateState.Error(e.message ?: "Failed to check updates")
@@ -56,7 +63,7 @@ class OtaViewModel @Inject constructor(
     fun downloadUpdate(url: String, filename: String, md5: String?) {
         viewModelScope.launch {
             try {
-                downloadUpdateUseCase.download(url, filename, md5).collect { progress ->
+                downloadUpdateUseCase.download(url, filename, md5, downloadsDir).collect { progress ->
                     _state.value = UpdateState.Downloading(
                         progress = progress.progress,
                         bytesDownloaded = progress.bytesDownloaded,
@@ -69,5 +76,12 @@ class OtaViewModel @Inject constructor(
                 _state.value = UpdateState.Error(e.message ?: "Download failed")
             }
         }
+    }
+
+    fun retryDownload() {
+        val update = lastAvailableUpdate ?: return
+        val url = update.downloadUrl ?: return
+        val filename = update.filename ?: "update.zip"
+        downloadUpdate(url, filename, update.md5)
     }
 }

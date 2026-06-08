@@ -7,8 +7,6 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
-import androidx.navigation.compose.rememberNavController
-import com.hyperos.updater.ui.navigation.HyperOsNavHost
 import com.hyperos.updater.ui.theme.HyperOsTheme
 import dagger.hilt.android.AndroidEntryPoint
 
@@ -20,8 +18,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             HyperOsTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
-                    val navController = rememberNavController()
-                    HyperOsNavHost(navController)
+                    MainScreen()
                 }
             }
         }
