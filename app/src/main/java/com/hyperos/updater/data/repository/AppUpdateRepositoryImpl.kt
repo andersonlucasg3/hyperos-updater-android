@@ -119,7 +119,7 @@ class AppUpdateRepositoryImpl @Inject constructor(
                         // Collect all source versions that are genuinely newer than installed
                         val allSourceResults = listOfNotNull(pureResult, comboResult, fdroidResult, mirrorResult, githubResult, memeosResult)
                         val sourceVersions = allSourceResults
-                            .filter { VersionComparator.isNewer(app.versionName, it.versionName) || (it.versionCode > 0 && it.versionCode > app.versionCode) }
+                            .filter { VersionComparator.isNewer(app.versionName, it.versionName) }
                             .map { SourceVersion(it.source, it.versionName, it.downloadUrl) }
 
                         // If F-Droid found it with real versionCode > installed, it's an update
