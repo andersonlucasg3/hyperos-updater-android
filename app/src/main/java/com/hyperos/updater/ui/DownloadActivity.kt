@@ -135,7 +135,23 @@ class DownloadActivity : Activity() {
                 override fun shouldOverrideUrlLoading(view: WebView?, requestUrl: String?): Boolean {
                     Log.i("DownloadActivity", "Navigate: $requestUrl")
                     if (requestUrl == null) return false
-                    // Only capture final APK file URLs and known-good CDNs (Cloudflare R2)
+
+                    // Decode apkcombo.com/d?u=<base64> redirect URLs
+                    if (requestUrl.contains("apkcombo.com/d?") && requestUrl.contains("u=")) {
+                        val uParam = Regex("[?&]u=([^&]+)").find(requestUrl)?.groupValues?.get(1)
+                        if (uParam != null) {
+                            try {
+                                val decoded = String(android.util.Base64.decode(uParam, android.util.Base64.URL_SAFE), Charsets.UTF_8)
+                                if (decoded.startsWith("http") && decoded != url) {
+                                    Log.i("DownloadActivity", "Decoded CDN: $decoded")
+                                    capture(decoded)
+                                    return true
+                                }
+                            } catch (_: Exception) { }
+                        }
+                    }
+
+                    // Capture final APK file URLs and known-good CDNs (Cloudflare R2)
                     val isApkUrl = requestUrl.endsWith(".apk") || requestUrl.endsWith(".xapk") ||
                             requestUrl.endsWith(".apks") || requestUrl.endsWith(".apkm") ||
                             requestUrl.endsWith(".aab")
