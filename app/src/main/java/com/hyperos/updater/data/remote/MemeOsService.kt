@@ -50,7 +50,7 @@ class MemeOsService @Inject constructor(
         }
     }
 
-    /** Search by app name using memeosupdates.com/search/{query} */
+    /** Search by app name using memeosupdates.com/search/{query}, then fetch detail page for version. */
     suspend fun searchByName(query: String): MemeOsResult? = withContext(Dispatchers.IO) {
         try {
             val encoded = java.net.URLEncoder.encode(query, "UTF-8").replace("+", "%20")
@@ -60,30 +60,36 @@ class MemeOsService @Inject constructor(
             val response = okHttpClient.newCall(request).execute()
             val html = response.body?.string() ?: return@withContext null
 
-            // Extract app links: href="/apps/{pkg}" (skip JS template placeholders)
-            val linkRegex = Regex("""href="/apps/(com\.[^"]+)"[^>]*>""")
-            val match = linkRegex.find(html) ?: run {
+            // Extract first valid app link: href="/apps/{pkg}" (skip JS template placeholders like ${...})
+            val linkRegex = Regex("""href="/apps/(com\.[^"]+)"[^>]*>([^<]+)</a>""")
+            val matches = linkRegex.findAll(html).toList()
+            if (matches.isEmpty()) {
                 Log.d("MemeOs", "No results for '$query'")
                 return@withContext null
             }
-            val pkg = match.groupValues[1]
 
-            // Get app name from the link text
-            val snippet = html.substring(maxOf(0, match.range.first - 100), minOf(match.range.first + 400, html.length))
-            val nameRegex = Regex("""href="/apps/$pkg"[^>]*>([^<]+)</a>""")
-            val appName = nameRegex.find(snippet)?.groupValues?.get(1)?.trim()?.takeIf { it.isNotBlank() && !it.startsWith("{") } ?: query
-
-            // Extract version from the snippet
-            val version = extractVersion(snippet) ?: extractVersion(html)
+            // Use the first match
+            val pkg = matches.first().groupValues[1]
+            var appName = matches.first().groupValues[2].trim()
+            if (appName.startsWith("{") || appName.isBlank()) appName = query
 
             val downloadUrl = "https://memeosupdates.com/apps/$pkg"
-            if (version != null) {
-                Log.i("MemeOs", "searchByName: $appName v$version → $downloadUrl")
-                MemeOsResult(appName, version, downloadUrl)
-            } else {
-                Log.i("MemeOs", "searchByName: $appName (no version) → $downloadUrl")
-                MemeOsResult(appName, "", downloadUrl)
-            }
+
+            // Fetch the app detail page to get version and proper name
+            val detailRequest = Request.Builder().url(downloadUrl)
+                .header("User-Agent", NetworkUtils.USER_AGENT).build()
+            val detailResponse = okHttpClient.newCall(detailRequest).execute()
+            val detailHtml = detailResponse.body?.string() ?: html
+
+            // Extract version from detail page
+            val version = extractVersion(detailHtml) ?: extractVersion(html)
+            // Try to get better app name from detail page title
+            val titleRegex = Regex("""<title>([^<]+)APK Download""")
+            val titleName = titleRegex.find(detailHtml)?.groupValues?.get(1)?.trim()
+            if (titleName != null) appName = titleName
+
+            Log.i("MemeOs", "searchByName: $appName ${if (version != null) "v$version" else "(no version)"} → $downloadUrl")
+            MemeOsResult(appName, version ?: "", downloadUrl)
         } catch (e: Exception) {
             Log.d("MemeOs", "searchByName error: ${e.message}")
             null

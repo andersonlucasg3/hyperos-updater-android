@@ -31,7 +31,7 @@ class ApkMirrorService @Inject constructor(
         return withContext(Dispatchers.IO) {
             try {
                 val encoded = java.net.URLEncoder.encode(query, "UTF-8")
-                val url = "https://www.apkmirror.com/?s=$encoded&post_type=app_release"
+                val url = "https://www.apkmirror.com/?post_type=app_release&searchtype=apk&s=$encoded&bundles%5B%5D=apkm_bundles&bundles%5B%5D=apk_files"
                 val request = Request.Builder()
                     .url(url)
                     .header("User-Agent", NetworkUtils.APKMIRROR_USER_AGENT)
