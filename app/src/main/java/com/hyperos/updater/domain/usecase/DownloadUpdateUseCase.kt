@@ -26,11 +26,11 @@ class DownloadUpdateUseCase @Inject constructor(
     @ApplicationContext private val context: Context,
     private val okHttpClient: OkHttpClient
 ) {
-    suspend fun download(url: String, fileName: String, expectedMd5: String? = null): Flow<DownloadProgress> = callbackFlow {
-        val downloadDir = File(context.filesDir, "downloads")
-        if (!downloadDir.exists()) downloadDir.mkdirs()
+    suspend fun download(url: String, fileName: String, expectedMd5: String? = null, downloadDir: File? = null): Flow<DownloadProgress> = callbackFlow {
+        val dir = downloadDir ?: File(context.filesDir, "downloads")
+        if (!dir.exists()) dir.mkdirs()
 
-        val file = File(downloadDir, fileName)
+        val file = File(dir, fileName)
         if (file.exists()) file.delete()
 
         val request = Request.Builder().url(url).build()

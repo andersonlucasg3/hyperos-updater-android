@@ -3,6 +3,7 @@ package com.hyperos.updater.domain
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageInstaller
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
@@ -40,6 +41,50 @@ class DownloadManager @Inject constructor(
 
     private val activeJobs = mutableMapOf<String, Job>()
     private val downloadsDir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "HyperOSUpdater").also { it.mkdirs() }
+    private val fileCache = mutableMapOf<String, String>()
+
+    // ── Public API ──────────────────────────────────────────────
+
+    /** Check if a previously downloaded APK exists for [key]. If so, install directly. Returns true if cached. */
+    fun installCached(key: String, appName: String): Boolean {
+        // 1. Explicit fileCache
+        fileCache[key]?.let { fileName ->
+            val file = File(downloadsDir, fileName)
+            if (file.exists() && file.length() > 0L) {
+                runInstall(file, key, appName, fileName)
+                return true
+            }
+            fileCache.remove(key)
+        }
+        // 2. Active download entries with existing files
+        _downloads.value[key]?.let { dl ->
+            val file = File(downloadsDir, dl.fileName)
+            if (file.exists() && file.length() > 0L) {
+                fileCache[key] = dl.fileName
+                runInstall(file, key, appName, dl.fileName)
+                return true
+            }
+        }
+        // 3. Scan downloads dir for orphaned APKs
+        val apkFiles = downloadsDir.listFiles { f -> f.isFile && f.extension == "apk" } ?: emptyArray()
+        when {
+            apkFiles.size == 1 -> {
+                val f = apkFiles.first()
+                fileCache[key] = f.name
+                runInstall(f, key, appName, f.name)
+                return true
+            }
+            apkFiles.size > 1 -> {
+                val keyParts = key.split(" ").filter { it.length > 3 }
+                apkFiles.firstOrNull { f -> keyParts.any { p -> f.name.contains(p, ignoreCase = true) } }?.let { f ->
+                    fileCache[key] = f.name
+                    runInstall(f, key, appName, f.name)
+                    return true
+                }
+            }
+        }
+        return false
+    }
 
     fun startDownload(url: String, fileName: String, key: String, appName: String) {
         activeJobs[key]?.cancel()
@@ -47,36 +92,25 @@ class DownloadManager @Inject constructor(
 
         activeJobs[key] = CoroutineScope(Dispatchers.IO).launch {
             try {
-                var lastBytes = -1L; var lastTime = 0L
-                downloadUseCase.download(url, fileName, null).collect { p ->
-                    val now = System.currentTimeMillis()
-                    val speed = if (lastBytes >= 0 && lastTime > 0) {
-                        val elapsed = (now - lastTime).coerceAtLeast(100)
-                        ((p.bytesDownloaded - lastBytes) * 1000 / elapsed)
-                    } else 0L
-                    lastBytes = p.bytesDownloaded; lastTime = now
-                    _downloads.update { it + (key to ActiveDownload(key, appName, fileName,
-                        DownloadProgress(fileName = fileName, progress = p.progress, bytesDownloaded = p.bytesDownloaded, totalBytes = p.totalBytes, speedBytesPerSec = speed, status = DownloadStatus.DOWNLOADING))) }
+                val file = File(downloadsDir, fileName)
+
+                if (file.exists() && file.length() > 0) {
+                    Log.i("DownloadManager", "APK cached: ${file.absolutePath} (${file.length()} bytes), skipping download")
+                } else {
+                    var lastBytes = -1L; var lastTime = 0L
+                    downloadUseCase.download(url, fileName, null, downloadsDir).collect { p ->
+                        val now = System.currentTimeMillis()
+                        val speed = if (lastBytes >= 0 && lastTime > 0) {
+                            ((p.bytesDownloaded - lastBytes) * 1000 / (now - lastTime).coerceAtLeast(100))
+                        } else 0L
+                        lastBytes = p.bytesDownloaded; lastTime = now
+                        _downloads.update { it + (key to ActiveDownload(key, appName, fileName,
+                            DownloadProgress(fileName = fileName, progress = p.progress, bytesDownloaded = p.bytesDownloaded, totalBytes = p.totalBytes, speedBytesPerSec = speed, status = DownloadStatus.DOWNLOADING))) }
+                    }
+                    Log.i("DownloadManager", "Download complete: ${file.absolutePath} (${file.length()} bytes)")
                 }
 
-                val file = File(downloadsDir, fileName)
-                Log.i("DownloadManager", "Download complete: ${file.absolutePath} (${file.length()} bytes)")
-                _downloads.update { it + (key to ActiveDownload(key, appName, fileName, DownloadProgress(fileName = fileName, status = DownloadStatus.INSTALLING))) }
-                val ext = fileName.substringAfterLast('.', "apk")
-                val installResult = when (ext) {
-                    "apk" -> installApk(file)
-                    "apkm", "xapk", "apks" -> installSplitApk(file)
-                    "aab" -> "AAB cannot be installed directly"
-                    else -> installApk(file)
-                }
-                val finalStatus = when {
-                    installResult == null -> DownloadStatus.COMPLETED       // Session or Shizuku confirmed
-                    installResult == "awaiting_user" -> DownloadStatus.AWAITING_INSTALL // PackageInstaller opened
-                    else -> DownloadStatus.ERROR
-                }
-                Log.i("DownloadManager", "Install result: $installResult → status=$finalStatus")
-                _downloads.update { it + (key to ActiveDownload(key, appName, fileName,
-                    DownloadProgress(fileName = fileName, status = finalStatus))) }
+                runInstall(file, key, appName, fileName)
             } catch (e: Exception) {
                 Log.e("DownloadManager", "Download failed: $key", e)
                 _downloads.update { it + (key to ActiveDownload(key, appName, fileName, DownloadProgress(fileName = fileName, status = DownloadStatus.ERROR))) }
@@ -86,33 +120,76 @@ class DownloadManager @Inject constructor(
 
     fun cancelDownload(key: String) {
         activeJobs[key]?.cancel(); activeJobs.remove(key)
+        activeJobs.remove("$key-poll")
         _downloads.update { it + (key to (it[key]?.copy(progress = DownloadProgress(status = DownloadStatus.CANCELLED)) ?: return@update it)) }
     }
 
-    fun dismissDownload(key: String) { _downloads.update { it - key } }
+    fun dismissDownload(key: String) {
+        activeJobs.remove("$key-poll")
+        _downloads.update { it - key }
+    }
 
     fun retryInstall(key: String) {
         val dl = _downloads.value[key] ?: return
         val file = File(downloadsDir, dl.fileName)
         if (file.exists() && file.length() > 0) {
-            _downloads.update { it + (key to dl.copy(progress = DownloadProgress(fileName = dl.fileName, status = DownloadStatus.INSTALLING))) }
-            Thread {
-                val error = installApk(file)
-                val newStatus = if (error == null) DownloadStatus.COMPLETED else DownloadStatus.ERROR
-                _downloads.update { it + (key to dl.copy(progress = DownloadProgress(fileName = dl.fileName, status = newStatus))) }
-            }.start()
+            runInstall(file, key, dl.appName, dl.fileName)
         }
     }
+
+    // ── Unified install entry point ─────────────────────────────
+
+    /** Single entry point for all install flows. Runs on Dispatchers.IO, handles status updates, caching, and polling. */
+    private fun runInstall(file: File, key: String, appName: String, fileName: String) {
+        _downloads.update { it + (key to ActiveDownload(key, appName, fileName, DownloadProgress(fileName = fileName, status = DownloadStatus.INSTALLING))) }
+        activeJobs[key] = CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val result = executeInstall(file)
+                val finalStatus = when {
+                    result == null -> DownloadStatus.COMPLETED
+                    result == "awaiting_user" -> DownloadStatus.AWAITING_INSTALL
+                    else -> DownloadStatus.ERROR
+                }
+                Log.i("DownloadManager", "Install result: $result → status=$finalStatus")
+                if (finalStatus == DownloadStatus.COMPLETED || finalStatus == DownloadStatus.AWAITING_INSTALL) {
+                    fileCache[key] = fileName
+                }
+                if (finalStatus == DownloadStatus.AWAITING_INSTALL) {
+                    scheduleInstallPoll(file, key, appName, fileName)
+                }
+                _downloads.update { it + (key to ActiveDownload(key, appName, fileName, DownloadProgress(fileName = fileName, status = finalStatus))) }
+            } catch (e: Exception) {
+                Log.e("DownloadManager", "Install failed: $key", e)
+                _downloads.update { it + (key to ActiveDownload(key, appName, fileName, DownloadProgress(fileName = fileName, status = DownloadStatus.ERROR))) }
+            }
+        }
+    }
+
+    /** Dispatches to the right install method based on file extension. */
+    private fun executeInstall(file: File): String? {
+        val ext = file.name.substringAfterLast('.', "apk")
+        return when (ext) {
+            "apk" -> installApk(file)
+            "apkm", "xapk", "apks" -> installSplitApk(file)
+            "aab" -> "AAB cannot be installed directly"
+            else -> installApk(file)
+        }
+    }
+
+    // ── Install methods ─────────────────────────────────────────
 
     fun installApk(file: File): String? {
         if (!file.exists() || file.length() == 0L) return "File not found or empty"
         try {
             Log.i("DownloadManager", "Installing: ${file.absolutePath} (${file.length()} bytes)")
 
-            // 1. Unattended install via PackageInstaller.Session (Android 12+)
+            // 1. Unattended install via PackageInstaller.Session — best effort, may silently fail
             val sessionResult = sessionInstallSingle(file)
-            if (sessionResult == null) return null // success
-            if (sessionResult != "unsupported") Log.w("DownloadManager", "Session failed: $sessionResult")
+            if (sessionResult == null) {
+                Log.i("DownloadManager", "Session commit OK, falling through for confirmed install")
+            } else if (sessionResult != "unsupported") {
+                Log.w("DownloadManager", "Session failed: $sessionResult")
+            }
 
             // 2. Shizuku via pm install (stdin pipe)
             if (ShizukuHelper.isReady()) {
@@ -131,7 +208,7 @@ class DownloadManager @Inject constructor(
                 }
             }
 
-            // 3. Fallback: system package installer — user must confirm, return "awaiting"
+            // 3. Fallback: system package installer — user must confirm
             val uri = FileProvider.getUriForFile(app, "${app.packageName}.fileprovider", file)
             val intent = Intent(Intent.ACTION_VIEW).apply {
                 setDataAndType(uri, "application/vnd.android.package-archive")
@@ -139,9 +216,41 @@ class DownloadManager @Inject constructor(
             }
             app.startActivity(intent)
             Log.i("DownloadManager", "PackageInstaller opened for ${file.name}")
-            return "awaiting_user" // Signal: install requires user confirmation
+            return "awaiting_user"
         } catch (e: Exception) { return "Install error: ${e.message}" }
     }
+
+    // ── Install confirmation polling ────────────────────────────
+
+    private fun scheduleInstallPoll(file: File, key: String, appName: String, fileName: String) {
+        val pkgInfo = app.packageManager.getPackageArchiveInfo(file.absolutePath, 0) ?: run {
+            Log.w("DownloadManager", "Cannot read package info from APK")
+            return
+        }
+        val pkgName = pkgInfo.packageName
+        val expectedVersion = pkgInfo.versionCode
+        Log.i("DownloadManager", "Polling for install confirmation: $pkgName v$expectedVersion")
+
+        val pollKey = "$key-poll"
+        activeJobs[pollKey] = CoroutineScope(Dispatchers.IO).launch {
+            for (i in 0 until 30) {
+                delay(2000)
+                try {
+                    val installed = app.packageManager.getPackageInfo(pkgName, 0)
+                    if (installed.versionCode >= expectedVersion) {
+                        Log.i("DownloadManager", "Install confirmed: $pkgName v${installed.versionCode}")
+                        _downloads.update { it + (key to ActiveDownload(key, appName, fileName,
+                            DownloadProgress(fileName = fileName, status = DownloadStatus.COMPLETED))) }
+                        fileCache[key] = fileName
+                        return@launch
+                    }
+                } catch (_: PackageManager.NameNotFoundException) { /* fresh install in progress */ }
+            }
+            Log.w("DownloadManager", "Install poll timeout for $pkgName")
+        }
+    }
+
+    // ── PackageInstaller.Session (unattended) ────────────────────
 
     private fun sessionInstallSingle(file: File): String? {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) return "unsupported"
@@ -160,24 +269,6 @@ class DownloadManager @Inject constructor(
             Log.i("DownloadManager", "Session install $sessionId")
             null
         } catch (e: Exception) { e.message }
-    }
-
-    private fun installSplitApk(file: File): String? {
-        val outDir = File(downloadsDir, file.nameWithoutExtension); outDir.mkdirs()
-        try {
-            val apkFiles = mutableListOf<File>()
-            ZipFile(file).use { zip ->
-                zip.entries().asIterator().forEach { entry ->
-                    if (entry.isDirectory) return@forEach
-                    val out = File(outDir, entry.name); out.parentFile?.mkdirs()
-                    zip.getInputStream(entry).use { input -> out.outputStream().use { output -> input.copyTo(output) } }
-                    if (out.extension == "apk") apkFiles.add(out)
-                }
-            }
-            if (apkFiles.isEmpty()) return "No APKs found in split bundle"
-            if (apkFiles.size == 1) return installApk(apkFiles.first())
-            return sessionInstallMulti(apkFiles)
-        } catch (e: Exception) { return "Split APK extract failed: ${e.message}" }
     }
 
     private fun sessionInstallMulti(apkFiles: List<File>): String? {
@@ -199,5 +290,25 @@ class DownloadManager @Inject constructor(
             Log.i("DownloadManager", "Multi-session $sessionId: ${apkFiles.size} splits")
             null
         } catch (e: Exception) { e.message }
+    }
+
+    // ── Split APK extraction ────────────────────────────────────
+
+    private fun installSplitApk(file: File): String? {
+        val outDir = File(downloadsDir, file.nameWithoutExtension); outDir.mkdirs()
+        try {
+            val apkFiles = mutableListOf<File>()
+            ZipFile(file).use { zip ->
+                zip.entries().asIterator().forEach { entry ->
+                    if (entry.isDirectory) return@forEach
+                    val out = File(outDir, entry.name); out.parentFile?.mkdirs()
+                    zip.getInputStream(entry).use { input -> out.outputStream().use { output -> input.copyTo(output) } }
+                    if (out.extension == "apk") apkFiles.add(out)
+                }
+            }
+            if (apkFiles.isEmpty()) return "No APKs found in split bundle"
+            if (apkFiles.size == 1) return installApk(apkFiles.first())
+            return sessionInstallMulti(apkFiles)
+        } catch (e: Exception) { return "Split APK extract failed: ${e.message}" }
     }
 }

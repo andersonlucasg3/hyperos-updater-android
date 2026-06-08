@@ -112,29 +112,34 @@ class AppUpdateRepositoryImpl @Inject constructor(
                         val mirrorResult = mirrorDeferred.await()
                         val githubResult = githubDeferred.await()
 
-                        // Collect all source versions
-                        val sourceVersions = listOfNotNull(pureResult, comboResult, fdroidResult, mirrorResult, githubResult).map {
-                            SourceVersion(it.source, it.versionName, it.downloadUrl)
-                        }
+                        // Collect all source versions that are genuinely newer than installed
+                        val allSourceResults = listOfNotNull(pureResult, comboResult, fdroidResult, mirrorResult, githubResult)
+                        val sourceVersions = allSourceResults
+                            .filter { VersionComparator.isNewer(app.versionName, it.versionName) || (it.versionCode > 0 && it.versionCode > app.versionCode) }
+                            .map { SourceVersion(it.source, it.versionName, it.downloadUrl) }
 
                         // If F-Droid found it with real versionCode > installed, it's an update
                         val hasUpdate = (fdroidResult != null && fdroidResult.versionCode > app.versionCode) ||
                             sourceVersions.any { VersionComparator.isNewer(app.versionName, it.version) }
 
-                        // Best = highest version from any source
-                        val best = pickBest(pureResult, comboResult, fdroidResult, mirrorResult, githubResult)
-                        val foundSources = sourceVersions.isNotEmpty()
+                        // Best = highest version from NEWER sources only
+                        val best = if (hasUpdate) pickBest(
+                            pureResult?.takeIf { sourceVersions.any { sv -> sv.source == UpdateSource.APKPURE } },
+                            comboResult?.takeIf { sourceVersions.any { sv -> sv.source == UpdateSource.APKCOMBO } },
+                            fdroidResult?.takeIf { sourceVersions.any { sv -> sv.source == UpdateSource.FDROID } },
+                            mirrorResult?.takeIf { sourceVersions.any { sv -> sv.source == UpdateSource.APKMIRROR } },
+                            githubResult?.takeIf { sourceVersions.any { sv -> sv.source == UpdateSource.GITHUB } }
+                        ) else null
 
                         // Use real versionCode from FDroid if available, else best source
                         val realVersionCode = fdroidResult?.versionCode ?: best?.versionCode ?: app.versionCode
-                        // Best source determines primary download URL and latestVersion
-                        val primarySource = best?.source ?: if (foundSources) sourceVersions.first().source else UpdateSource.UNTRACKED
+                        val primarySource = best?.source ?: UpdateSource.UNTRACKED
 
                         AppUpdate(
                             packageName = app.packageName,
                             appName = app.appName,
                             currentVersion = app.versionName,
-                            latestVersion = best?.versionName ?: app.versionName,
+                            latestVersion = if (hasUpdate) best?.versionName ?: app.versionName else app.versionName,
                             latestVersionCode = realVersionCode,
                             fileSize = best?.fileSize,
                             downloadUrl = best?.downloadUrl,

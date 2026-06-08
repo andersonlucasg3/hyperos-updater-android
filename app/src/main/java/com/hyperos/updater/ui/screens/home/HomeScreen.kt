@@ -241,6 +241,8 @@ fun HomeScreen(
                                         dl.progress.status.isOngoing() -> IconButton(onClick = { appViewModel.downloadManager.cancelDownload(dlKey) }) {
                                             Icon(Icons.Default.Cancel, contentDescription = "Cancel", tint = MaterialTheme.colorScheme.error) }
                                         dl.progress.status == DownloadStatus.COMPLETED -> Icon(Icons.Default.CheckCircle, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                        dl.progress.status == DownloadStatus.AWAITING_INSTALL -> IconButton(onClick = { appViewModel.downloadManager.retryInstall(dlKey) }) {
+                                            Icon(Icons.Default.InstallMobile, contentDescription = "Install", tint = MaterialTheme.colorScheme.primary) }
                                         else -> IconButton(onClick = { appViewModel.downloadManager.dismissDownload(dlKey) }) {
                                             Icon(Icons.Default.Error, contentDescription = null, tint = MaterialTheme.colorScheme.error) }
                                     }
@@ -248,6 +250,8 @@ fun HomeScreen(
                                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                         IconButton(onClick = {
                                             if (result.source == UpdateSource.APKMIRROR) {
+                                                // Skip WebView if APK already cached
+                                                if (appViewModel.downloadManager.installCached(dlKey, result.appName)) return@IconButton
                                                 pendingKey = dlKey
                                                 val base = result.downloadPageUrl.trimEnd('/')
                                                 val slug = base.split("/").last { it.isNotBlank() }
@@ -350,6 +354,8 @@ fun HomeScreen(
                                         dl.progress.status.isOngoing() -> IconButton(onClick = { appViewModel.downloadManager.cancelDownload(dlKey) }) {
                                             Icon(Icons.Default.Cancel, contentDescription = null, tint = MaterialTheme.colorScheme.error) }
                                         dl.progress.status == DownloadStatus.COMPLETED -> Icon(Icons.Default.CheckCircle, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                        dl.progress.status == DownloadStatus.AWAITING_INSTALL -> IconButton(onClick = { appViewModel.downloadManager.retryInstall(dlKey) }) {
+                                            Icon(Icons.Default.InstallMobile, contentDescription = "Install", tint = MaterialTheme.colorScheme.primary) }
                                         else -> IconButton(onClick = { appViewModel.downloadManager.dismissDownload(dlKey) }) {
                                             Icon(Icons.Default.Error, contentDescription = null, tint = MaterialTheme.colorScheme.error) }
                                     }
@@ -357,6 +363,8 @@ fun HomeScreen(
                                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                         if (hasUpdate) IconButton(onClick = {
                                             val key = update.updateSource.name + update.appName
+                                            // Skip WebView if APK already cached
+                                            if (appViewModel.downloadManager.installCached(key, update.appName)) return@IconButton
                                             appViewModel.setPendingDownloadKey(key)
                                             val dlPageUrl = appViewModel.getDownloadPageUrl(update)
                                             val intent = Intent(context, com.hyperos.updater.ui.DownloadActivity::class.java)

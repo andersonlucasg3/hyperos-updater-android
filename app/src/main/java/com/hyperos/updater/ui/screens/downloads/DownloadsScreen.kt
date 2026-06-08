@@ -72,6 +72,12 @@ fun DownloadsScreen(
                                                 tint = MaterialTheme.colorScheme.error)
                                         }
                                     }
+                                    DownloadStatus.AWAITING_INSTALL -> {
+                                        IconButton(onClick = { viewModel.downloadManager.retryInstall(dl.key) }) {
+                                            Icon(Icons.Default.InstallMobile, contentDescription = "Install",
+                                                tint = MaterialTheme.colorScheme.primary)
+                                        }
+                                    }
                                     DownloadStatus.COMPLETED -> {
                                         Icon(Icons.Default.CheckCircle, contentDescription = null,
                                             tint = MaterialTheme.colorScheme.primary)

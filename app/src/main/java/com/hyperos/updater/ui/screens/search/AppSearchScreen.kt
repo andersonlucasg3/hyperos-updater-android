@@ -113,6 +113,10 @@ fun AppSearchScreen(
                                             IconButton(onClick = { viewModel.downloadManager.cancelDownload(dlKey) }) {
                                                 Icon(Icons.Default.Cancel, contentDescription = "Cancel", tint = MaterialTheme.colorScheme.error)
                                             }
+                                        DownloadStatus.AWAITING_INSTALL ->
+                                            IconButton(onClick = { viewModel.downloadManager.retryInstall(dlKey) }) {
+                                                Icon(Icons.Default.InstallMobile, contentDescription = "Install", tint = MaterialTheme.colorScheme.primary)
+                                            }
                                         DownloadStatus.COMPLETED ->
                                             Icon(Icons.Default.CheckCircle, contentDescription = "Done", tint = MaterialTheme.colorScheme.primary)
                                         DownloadStatus.ERROR, DownloadStatus.CANCELLED ->
@@ -124,6 +128,8 @@ fun AppSearchScreen(
                                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                         IconButton(onClick = {
                                             if (result.source == UpdateSource.APKMIRROR) {
+                                                // Skip WebView if APK already cached
+                                                if (viewModel.downloadManager.installCached(dlKey, result.appName)) return@IconButton
                                                 pendingKey = dlKey
                                                 val base = result.downloadPageUrl.trimEnd('/')
                                                 val slug = base.split("/").last { it.isNotBlank() }
