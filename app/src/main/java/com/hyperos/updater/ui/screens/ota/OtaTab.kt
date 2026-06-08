@@ -1,17 +1,18 @@
 package com.hyperos.updater.ui.screens.ota
 
 import android.content.Intent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -52,6 +53,20 @@ fun OtaTab(
     val state by viewModel.state.collectAsState()
     val currentVersion by viewModel.currentVersion.collectAsState()
     val context = LocalContext.current
+    var pendingOtaFilename by remember { mutableStateOf("update.zip") }
+
+    // WebView launcher for MemeOs downloads — captures CDN URL for progress tracking
+    val otaDownloadLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == android.app.Activity.RESULT_OK) {
+            val url = result.data?.getStringExtra("downloadUrl")
+            if (url != null) {
+                val filename = com.hyperos.updater.ui.screens.apps.AppUpdatesViewModel.extractFilename(url)
+                viewModel.downloadUpdate(url, filename, null)
+            }
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -140,13 +155,15 @@ fun OtaTab(
 
                             // Download button — direct for Xiaomi API, WebView for MemeOs
                             if (s.update.source == OtaSource.MEMEOS) {
-                                // MemeOs page is JS-rendered — open in WebView for user to download
-                                OutlinedButton(onClick = {
+                                // MemeOs: open WebView, capture CDN URL, then show download progress
+                                Button(onClick = {
                                     val intent = Intent(context, DownloadActivity::class.java)
                                     intent.putExtra("url", s.update.downloadUrl ?: "https://memeosupdates.com/hyperos/")
-                                    context.startActivity(intent)
+                                    otaDownloadLauncher.launch(intent)
                                 }) {
-                                    Text("Open Download Page")
+                                    Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("Download from MemeOS")
                                 }
                             } else if (s.update.downloadUrl != null) {
                                 Button(onClick = {
