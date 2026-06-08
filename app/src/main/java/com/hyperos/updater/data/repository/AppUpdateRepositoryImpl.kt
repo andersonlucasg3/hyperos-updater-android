@@ -8,6 +8,7 @@ import com.hyperos.updater.data.remote.ApkComboResult
 import com.hyperos.updater.data.remote.ApkComboService
 import com.hyperos.updater.data.remote.ApkPureResult
 import com.hyperos.updater.data.remote.ApkPureService
+import com.hyperos.updater.data.remote.FDroidService
 import com.hyperos.updater.domain.model.AppInfo
 import com.hyperos.updater.domain.model.AppType
 import com.hyperos.updater.domain.model.AppUpdate
@@ -33,7 +34,8 @@ class AppUpdateRepositoryImpl @Inject constructor(
     @ApplicationContext private val context: Context,
     private val trackedAppDao: TrackedAppDao,
     private val apkPureService: ApkPureService,
-    private val apkComboService: ApkComboService
+    private val apkComboService: ApkComboService,
+    private val fDroidService: FDroidService
 ) : AppUpdateRepository {
 
     override suspend fun getInstalledApps(appType: AppType): List<AppInfo> =
@@ -94,32 +96,43 @@ class AppUpdateRepositoryImpl @Inject constructor(
                     semaphore.withPermit {
                         trackedAppDao.updateCurrentVersion(app.packageName, app.versionName, now)
 
-                        // Query both sources in parallel
+                        // Query all three sources in parallel
                         val pureDeferred = async { tryApkPure(app.packageName) }
                         val comboDeferred = async { tryApkCombo(app.packageName) }
+                        val fdroidDeferred = async { tryFDroid(app.packageName) }
                         val pureResult = pureDeferred.await()
                         val comboResult = comboDeferred.await()
+                        val fdroidResult = fdroidDeferred.await()
 
                         // Collect all source versions
-                        val sourceVersions = listOfNotNull(pureResult, comboResult).map {
+                        val sourceVersions = listOfNotNull(pureResult, comboResult, fdroidResult).map {
                             SourceVersion(it.source, it.versionName, it.downloadUrl)
                         }
 
+                        // If F-Droid found it with real versionCode > installed, it's an update
+                        val hasUpdate = (fdroidResult != null && fdroidResult.versionCode > app.versionCode) ||
+                            sourceVersions.any { VersionComparator.isNewer(app.versionName, it.version) }
+
                         // Best = highest version from any source
-                        val best = pickBest(pureResult, comboResult)
-                        val foundSources = pureResult != null || comboResult != null
+                        val best = pickBest(pureResult, comboResult, fdroidResult)
+                        val foundSources = sourceVersions.isNotEmpty()
+
+                        // Use real versionCode from FDroid if available, else best source
+                        val realVersionCode = fdroidResult?.versionCode ?: best?.versionCode ?: app.versionCode
+                        // Best source determines primary download URL and latestVersion
+                        val primarySource = best?.source ?: if (foundSources) sourceVersions.first().source else UpdateSource.UNTRACKED
 
                         AppUpdate(
                             packageName = app.packageName,
                             appName = app.appName,
                             currentVersion = app.versionName,
                             latestVersion = best?.versionName ?: app.versionName,
-                            latestVersionCode = best?.versionCode ?: app.versionCode,
+                            latestVersionCode = realVersionCode,
                             fileSize = best?.fileSize,
                             downloadUrl = best?.downloadUrl,
                             changelog = null,
                             publishedDate = null,
-                            updateSource = best?.source ?: if (foundSources) pureResult?.source ?: comboResult!!.source else UpdateSource.UNTRACKED,
+                            updateSource = primarySource,
                             appType = appType,
                             sourceVersions = sourceVersions
                         )
@@ -132,13 +145,15 @@ class AppUpdateRepositoryImpl @Inject constructor(
     }
 
     private fun pickBest(
-        pure: SourceResult?,
-        combo: SourceResult?
+        pure: SourceResult?, combo: SourceResult?, fdroid: SourceResult?
     ): SourceResult? {
-        if (pure == null && combo == null) return null
-        if (pure == null) return combo
-        if (combo == null) return pure
-        return if (VersionComparator.isNewer(pure.versionName, combo.versionName)) combo else pure
+        val list = listOfNotNull(pure, combo, fdroid)
+        if (list.isEmpty()) return null
+        if (list.size == 1) return list.first()
+        return list.maxWithOrNull { a, b ->
+            if (a.versionCode > 0 && b.versionCode > 0) a.versionCode.compareTo(b.versionCode)
+            else if (VersionComparator.isNewer(a.versionName, b.versionName)) 1 else -1
+        }
     }
 
     private suspend fun tryApkPure(pkg: String): SourceResult? = try {
@@ -149,6 +164,11 @@ class AppUpdateRepositoryImpl @Inject constructor(
     private suspend fun tryApkCombo(pkg: String): SourceResult? = try {
         val r = apkComboService.search(pkg) ?: return null
         SourceResult(r.versionName, r.versionCode, r.downloadUrl, r.fileSize, UpdateSource.APKCOMBO)
+    } catch (_: Exception) { null }
+
+    private suspend fun tryFDroid(pkg: String): SourceResult? = try {
+        val r = fDroidService.checkVersion(pkg) ?: return null
+        SourceResult(r.versionName, r.versionCode, r.downloadUrl, null, UpdateSource.FDROID)
     } catch (_: Exception) { null }
 }
 
