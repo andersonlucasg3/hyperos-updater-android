@@ -43,6 +43,7 @@ fun HomeScreen(
     val deviceVersion by homeViewModel.currentVersion.collectAsState()
     val searchState by searchViewModel.state.collectAsState()
     val appList = appViewModel.appList // SnapshotStateList — Compose tracks element-level changes
+    val ignored = appViewModel.ignoredPackages // SnapshotStateList
     val isScanning by appViewModel.isScanning.collectAsState()
     val downloadState by appViewModel.downloadManager.downloads.collectAsState()
     var filterText by remember { mutableStateOf("") }
@@ -57,6 +58,7 @@ fun HomeScreen(
                 compareByDescending<AppUpdate> { it.updateSource != UpdateSource.UNTRACKED && it.currentVersion != it.latestVersion }
                     .thenBy { it.appName.lowercase() }
             ).filter { update ->
+                update.packageName !in ignored &&
                 (filterText.isBlank() || update.appName.contains(filterText, ignoreCase = true) || update.packageName.contains(filterText, ignoreCase = true)) &&
                 (!showOnlyUpdates || (update.updateSource != UpdateSource.UNTRACKED && update.currentVersion != update.latestVersion))
             }
@@ -388,6 +390,13 @@ fun HomeScreen(
                                         Text(sv.version, style = MaterialTheme.typography.bodySmall,
                                             color = if (sv.version != update.currentVersion) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
+                                }
+                                Spacer(modifier = Modifier.height(4.dp))
+                                TextButton(onClick = { appViewModel.ignoredPackages.add(update.packageName) },
+                                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) {
+                                    Icon(Icons.Default.VisibilityOff, contentDescription = null, modifier = Modifier.size(14.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Hide this app", style = MaterialTheme.typography.labelSmall)
                                 }
                             }
                         }

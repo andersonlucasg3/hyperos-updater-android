@@ -35,6 +35,8 @@ class AppUpdatesViewModel @Inject constructor(
     val appList = mutableStateListOf<AppUpdate>()
     // Package → index for O(1) lookup
     private val pkgIndex = mutableMapOf<String, Int>()
+    // Ignored packages (in-memory, resets on restart)
+    val ignoredPackages = mutableStateListOf<String>()
 
     private val _isScanning = MutableStateFlow(false)
     val isScanning: StateFlow<Boolean> = _isScanning.asStateFlow()
