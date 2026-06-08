@@ -65,22 +65,25 @@ class DownloadManager @Inject constructor(
                 return true
             }
         }
-        // 3. Scan downloads dir for orphaned APKs
+        // 3. Scan downloads dir for orphaned APKs — verify package name matches
         val apkFiles = downloadsDir.listFiles { f -> f.isFile && f.extension == "apk" } ?: emptyArray()
-        when {
-            apkFiles.size == 1 -> {
-                val f = apkFiles.first()
-                fileCache[key] = f.name
-                runInstall(f, key, appName, f.name)
-                return true
-            }
-            apkFiles.size > 1 -> {
-                val keyParts = key.split(" ").filter { it.length > 3 }
-                apkFiles.firstOrNull { f -> keyParts.any { p -> f.name.contains(p, ignoreCase = true) } }?.let { f ->
+        for (f in apkFiles) {
+            val pkgInfo = app.packageManager.getPackageArchiveInfo(f.absolutePath, 0) ?: continue
+            val pkgName = pkgInfo.packageName
+            // Verify this APK belongs to the requested app
+            try {
+                val installedLabel = app.packageManager.getApplicationLabel(
+                    app.packageManager.getApplicationInfo(pkgName, 0)
+                ).toString()
+                if (installedLabel.equals(appName, ignoreCase = true) ||
+                    installedLabel.contains(appName, ignoreCase = true) ||
+                    appName.contains(installedLabel, ignoreCase = true)) {
                     fileCache[key] = f.name
                     runInstall(f, key, appName, f.name)
                     return true
                 }
+            } catch (_: PackageManager.NameNotFoundException) {
+                // App not installed — can't verify, skip
             }
         }
         return false
