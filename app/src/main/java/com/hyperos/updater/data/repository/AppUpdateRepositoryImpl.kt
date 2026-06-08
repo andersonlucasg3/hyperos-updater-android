@@ -11,6 +11,7 @@ import com.hyperos.updater.data.remote.ApkMirrorService
 import com.hyperos.updater.data.remote.ApkPureService
 import com.hyperos.updater.data.remote.FDroidService
 import com.hyperos.updater.data.remote.GitHubService
+import com.hyperos.updater.data.remote.MemeOsService
 import com.hyperos.updater.domain.model.AppInfo
 import com.hyperos.updater.domain.model.AppType
 import com.hyperos.updater.domain.model.AppUpdate
@@ -39,7 +40,8 @@ class AppUpdateRepositoryImpl @Inject constructor(
     private val apkComboService: ApkComboService,
     private val fDroidService: FDroidService,
     private val apkMirrorService: ApkMirrorService,
-    private val gitHubService: GitHubService
+    private val gitHubService: GitHubService,
+    private val memeOsService: MemeOsService
 ) : AppUpdateRepository {
 
     override suspend fun getInstalledApps(appType: AppType): List<AppInfo> =
@@ -100,20 +102,22 @@ class AppUpdateRepositoryImpl @Inject constructor(
                     semaphore.withPermit {
                         trackedAppDao.updateCurrentVersion(app.packageName, app.versionName, now)
 
-                        // Query all five sources in parallel
+                        // Query all six sources in parallel
                         val pureDeferred = async { tryApkPure(app.packageName) }
                         val comboDeferred = async { tryApkCombo(app.packageName) }
                         val fdroidDeferred = async { tryFDroid(app.packageName) }
                         val mirrorDeferred = async { tryApkMirror(app) }
                         val githubDeferred = async { tryGitHub(app.packageName) }
+                        val memeosDeferred = async { tryMemeOs(app.packageName) }
                         val pureResult = pureDeferred.await()
                         val comboResult = comboDeferred.await()
                         val fdroidResult = fdroidDeferred.await()
                         val mirrorResult = mirrorDeferred.await()
                         val githubResult = githubDeferred.await()
+                        val memeosResult = memeosDeferred.await()
 
                         // Collect all source versions that are genuinely newer than installed
-                        val allSourceResults = listOfNotNull(pureResult, comboResult, fdroidResult, mirrorResult, githubResult)
+                        val allSourceResults = listOfNotNull(pureResult, comboResult, fdroidResult, mirrorResult, githubResult, memeosResult)
                         val sourceVersions = allSourceResults
                             .filter { VersionComparator.isNewer(app.versionName, it.versionName) || (it.versionCode > 0 && it.versionCode > app.versionCode) }
                             .map { SourceVersion(it.source, it.versionName, it.downloadUrl) }
@@ -128,7 +132,8 @@ class AppUpdateRepositoryImpl @Inject constructor(
                             comboResult?.takeIf { sourceVersions.any { sv -> sv.source == UpdateSource.APKCOMBO } },
                             fdroidResult?.takeIf { sourceVersions.any { sv -> sv.source == UpdateSource.FDROID } },
                             mirrorResult?.takeIf { sourceVersions.any { sv -> sv.source == UpdateSource.APKMIRROR } },
-                            githubResult?.takeIf { sourceVersions.any { sv -> sv.source == UpdateSource.GITHUB } }
+                            githubResult?.takeIf { sourceVersions.any { sv -> sv.source == UpdateSource.GITHUB } },
+                            memeosResult?.takeIf { sourceVersions.any { sv -> sv.source == UpdateSource.MEMEOS } }
                         ) else null
 
                         // Use real versionCode from FDroid if available, else best source
@@ -158,9 +163,9 @@ class AppUpdateRepositoryImpl @Inject constructor(
     }
 
     private fun pickBest(
-        pure: SourceResult?, combo: SourceResult?, fdroid: SourceResult?, mirror: SourceResult?, github: SourceResult?
+        pure: SourceResult?, combo: SourceResult?, fdroid: SourceResult?, mirror: SourceResult?, github: SourceResult?, memeos: SourceResult? = null
     ): SourceResult? {
-        val list = listOfNotNull(pure, combo, fdroid, mirror, github)
+        val list = listOfNotNull(pure, combo, fdroid, mirror, github, memeos)
         if (list.isEmpty()) return null
         if (list.size == 1) return list.first()
         // APKCombo is last resort — many listings have no actual download
@@ -201,6 +206,11 @@ class AppUpdateRepositoryImpl @Inject constructor(
     private suspend fun tryGitHub(pkg: String): SourceResult? = try {
         val r = gitHubService.checkRelease(pkg) ?: return null
         SourceResult(r.versionName, r.versionCode, r.downloadUrl, null, UpdateSource.GITHUB)
+    } catch (_: Exception) { null }
+
+    private suspend fun tryMemeOs(pkg: String): SourceResult? = try {
+        val r = memeOsService.checkVersion(pkg) ?: return null
+        SourceResult(r.versionName, 0L, r.downloadUrl, null, UpdateSource.MEMEOS)
     } catch (_: Exception) { null }
 }
 

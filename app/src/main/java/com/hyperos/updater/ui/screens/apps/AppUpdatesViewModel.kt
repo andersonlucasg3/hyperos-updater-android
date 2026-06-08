@@ -149,6 +149,7 @@ class AppUpdatesViewModel @Inject constructor(
                 val slug = base.split("/").last { it.isNotBlank() }
                 "$base/${slug.replace("-release", "-android-apk-download")}/"
             }
+            UpdateSource.MEMEOS -> update.downloadUrl ?: "https://memeosupdates.com/apps/${update.packageName}"
             else -> "https://apkpure.com/apk/${update.packageName}"
         }
     }
