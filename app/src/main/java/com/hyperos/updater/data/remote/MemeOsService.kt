@@ -60,20 +60,18 @@ class MemeOsService @Inject constructor(
             val response = okHttpClient.newCall(request).execute()
             val html = response.body?.string() ?: return@withContext null
 
-            if (html.contains("No results")) {
+            // Extract app links: href="/apps/{pkg}" (skip JS template placeholders)
+            val linkRegex = Regex("""href="/apps/(com\.[^"]+)"[^>]*>""")
+            val match = linkRegex.find(html) ?: run {
                 Log.d("MemeOs", "No results for '$query'")
                 return@withContext null
             }
-
-            // Extract first result: href="/apps/{pkg}" and nearby title text
-            val linkRegex = Regex("""href="/apps/([^"]+)"[^>]*>""")
-            val match = linkRegex.find(html) ?: return@withContext null
             val pkg = match.groupValues[1]
 
-            // Try to get app name from a nearby element or URL
-            val snippet = html.substring(maxOf(0, match.range.first - 200), minOf(match.range.first + 500, html.length))
-            val nameRegex = Regex("""<a[^>]*href="/apps/$pkg"[^>]*>([^<]+)</a>""")
-            val appName = nameRegex.find(snippet)?.groupValues?.get(1)?.trim() ?: query
+            // Get app name from the link text
+            val snippet = html.substring(maxOf(0, match.range.first - 100), minOf(match.range.first + 400, html.length))
+            val nameRegex = Regex("""href="/apps/$pkg"[^>]*>([^<]+)</a>""")
+            val appName = nameRegex.find(snippet)?.groupValues?.get(1)?.trim()?.takeIf { it.isNotBlank() && !it.startsWith("{") } ?: query
 
             // Extract version from the snippet
             val version = extractVersion(snippet) ?: extractVersion(html)
@@ -83,7 +81,6 @@ class MemeOsService @Inject constructor(
                 Log.i("MemeOs", "searchByName: $appName v$version → $downloadUrl")
                 MemeOsResult(appName, version, downloadUrl)
             } else {
-                // Return result even without version (user can check page)
                 Log.i("MemeOs", "searchByName: $appName (no version) → $downloadUrl")
                 MemeOsResult(appName, "", downloadUrl)
             }
