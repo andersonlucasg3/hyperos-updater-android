@@ -50,10 +50,11 @@ class MemeOsService @Inject constructor(
         }
     }
 
-    /** Search by app name (not package name). Extracts first result from search page. */
+    /** Search by app name using memeosupdates.com/search/{query} */
     suspend fun searchByName(query: String): MemeOsResult? = withContext(Dispatchers.IO) {
         try {
-            val searchUrl = "https://memeosupdates.com/?s=${java.net.URLEncoder.encode(query, "UTF-8")}"
+            val encoded = java.net.URLEncoder.encode(query, "UTF-8").replace("+", "%20")
+            val searchUrl = "https://memeosupdates.com/search/$encoded"
             val request = Request.Builder().url(searchUrl)
                 .header("User-Agent", NetworkUtils.USER_AGENT).build()
             val response = okHttpClient.newCall(request).execute()
@@ -64,22 +65,28 @@ class MemeOsService @Inject constructor(
                 return@withContext null
             }
 
-            // Extract first search result link: <a href="/apps/{pkg}">App Name</a>
-            val linkRegex = Regex("""<a\s+href="(/apps/[^"]+)"[^>]*>([^<]+)</a>""")
+            // Extract first result: href="/apps/{pkg}" and nearby title text
+            val linkRegex = Regex("""href="/apps/([^"]+)"[^>]*>""")
             val match = linkRegex.find(html) ?: return@withContext null
-            val appPath = match.groupValues[1]
-            val appName = match.groupValues[2].trim()
-            val pkg = appPath.removePrefix("/apps/")
+            val pkg = match.groupValues[1]
 
-            // Extract version from near the link
-            val version = extractVersion(html.substring(match.range.first, minOf(match.range.first + 500, html.length)))
-                ?: extractVersion(html)
+            // Try to get app name from a nearby element or URL
+            val snippet = html.substring(maxOf(0, match.range.first - 200), minOf(match.range.first + 500, html.length))
+            val nameRegex = Regex("""<a[^>]*href="/apps/$pkg"[^>]*>([^<]+)</a>""")
+            val appName = nameRegex.find(snippet)?.groupValues?.get(1)?.trim() ?: query
 
+            // Extract version from the snippet
+            val version = extractVersion(snippet) ?: extractVersion(html)
+
+            val downloadUrl = "https://memeosupdates.com/apps/$pkg"
             if (version != null) {
-                val downloadUrl = "https://memeosupdates.com$appPath"
                 Log.i("MemeOs", "searchByName: $appName v$version → $downloadUrl")
                 MemeOsResult(appName, version, downloadUrl)
-            } else null
+            } else {
+                // Return result even without version (user can check page)
+                Log.i("MemeOs", "searchByName: $appName (no version) → $downloadUrl")
+                MemeOsResult(appName, "", downloadUrl)
+            }
         } catch (e: Exception) {
             Log.d("MemeOs", "searchByName error: ${e.message}")
             null
