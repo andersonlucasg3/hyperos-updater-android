@@ -119,7 +119,7 @@ class DownloadManager @Inject constructor(
         try {
             Log.i("DownloadManager", "Installing: ${file.absolutePath} (${file.length()} bytes)")
 
-            // Try Shizuku first for silent install
+            // Try Shizuku first for silent install via pm install
             if (ShizukuHelper.isReady()) {
                 try {
                     // Pipe APK content via stdin to pm install — bypasses file permission issues
