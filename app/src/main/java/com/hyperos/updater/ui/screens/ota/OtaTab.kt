@@ -52,6 +52,7 @@ fun OtaTab(
 ) {
     val state by viewModel.state.collectAsState()
     val currentVersion by viewModel.currentVersion.collectAsState()
+    val hasChecked by viewModel.hasChecked.collectAsState()
     val context = LocalContext.current
     var pendingOtaFilename by remember { mutableStateOf("update.zip") }
 
@@ -106,7 +107,11 @@ fun OtaTab(
             when (val s = state) {
                 is UpdateState.Idle -> {
                     Spacer(modifier = Modifier.height(32.dp))
-                    Text("Up to date", style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        if (hasChecked) "Up to date" else "Tap below to check for updates",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = if (hasChecked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                     Spacer(modifier = Modifier.height(16.dp))
                     Button(onClick = { viewModel.checkForUpdates() }) {
                         Text("Check for Updates")

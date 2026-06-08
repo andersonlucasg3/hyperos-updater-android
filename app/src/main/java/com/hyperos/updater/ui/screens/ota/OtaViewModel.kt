@@ -30,6 +30,9 @@ class OtaViewModel @Inject constructor(
     private val _currentVersion = MutableStateFlow("")
     val currentVersion: StateFlow<String> = _currentVersion
 
+    private val _hasChecked = MutableStateFlow(false)
+    val hasChecked: StateFlow<Boolean> = _hasChecked
+
     private val downloadsDir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "HyperOSUpdater").also { it.mkdirs() }
     private var lastAvailableUpdate: OtaUpdate? = null
 
@@ -49,6 +52,7 @@ class OtaViewModel @Inject constructor(
             _state.value = UpdateState.Checking
             try {
                 val result = checkOtaUpdateUseCase()
+                _hasChecked.value = true
                 // Cache the update for retry
                 if (result is UpdateState.Available) {
                     lastAvailableUpdate = result.update
