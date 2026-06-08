@@ -163,7 +163,10 @@ class AppUpdateRepositoryImpl @Inject constructor(
         val list = listOfNotNull(pure, combo, fdroid, mirror, github)
         if (list.isEmpty()) return null
         if (list.size == 1) return list.first()
-        return list.maxWithOrNull { a, b ->
+        // APKCombo is last resort — many listings have no actual download
+        val nonCombo = list.filter { it.source != UpdateSource.APKCOMBO }
+        val candidates = nonCombo.ifEmpty { list }
+        return candidates.maxWithOrNull { a, b ->
             if (a.versionCode > 0 && b.versionCode > 0) a.versionCode.compareTo(b.versionCode)
             else if (VersionComparator.isNewer(a.versionName, b.versionName)) 1 else -1
         }
