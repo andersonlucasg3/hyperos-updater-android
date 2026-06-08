@@ -10,6 +10,7 @@ import com.hyperos.updater.data.remote.ApkPureResult
 import com.hyperos.updater.data.remote.ApkMirrorService
 import com.hyperos.updater.data.remote.ApkPureService
 import com.hyperos.updater.data.remote.FDroidService
+import com.hyperos.updater.data.remote.GitHubService
 import com.hyperos.updater.domain.model.AppInfo
 import com.hyperos.updater.domain.model.AppType
 import com.hyperos.updater.domain.model.AppUpdate
@@ -37,7 +38,8 @@ class AppUpdateRepositoryImpl @Inject constructor(
     private val apkPureService: ApkPureService,
     private val apkComboService: ApkComboService,
     private val fDroidService: FDroidService,
-    private val apkMirrorService: ApkMirrorService
+    private val apkMirrorService: ApkMirrorService,
+    private val gitHubService: GitHubService
 ) : AppUpdateRepository {
 
     override suspend fun getInstalledApps(appType: AppType): List<AppInfo> =
@@ -98,18 +100,20 @@ class AppUpdateRepositoryImpl @Inject constructor(
                     semaphore.withPermit {
                         trackedAppDao.updateCurrentVersion(app.packageName, app.versionName, now)
 
-                        // Query all four sources in parallel
+                        // Query all five sources in parallel
                         val pureDeferred = async { tryApkPure(app.packageName) }
                         val comboDeferred = async { tryApkCombo(app.packageName) }
                         val fdroidDeferred = async { tryFDroid(app.packageName) }
                         val mirrorDeferred = async { tryApkMirror(app) }
+                        val githubDeferred = async { tryGitHub(app.packageName) }
                         val pureResult = pureDeferred.await()
                         val comboResult = comboDeferred.await()
                         val fdroidResult = fdroidDeferred.await()
                         val mirrorResult = mirrorDeferred.await()
+                        val githubResult = githubDeferred.await()
 
                         // Collect all source versions
-                        val sourceVersions = listOfNotNull(pureResult, comboResult, fdroidResult, mirrorResult).map {
+                        val sourceVersions = listOfNotNull(pureResult, comboResult, fdroidResult, mirrorResult, githubResult).map {
                             SourceVersion(it.source, it.versionName, it.downloadUrl)
                         }
 
@@ -118,7 +122,7 @@ class AppUpdateRepositoryImpl @Inject constructor(
                             sourceVersions.any { VersionComparator.isNewer(app.versionName, it.version) }
 
                         // Best = highest version from any source
-                        val best = pickBest(pureResult, comboResult, fdroidResult, mirrorResult)
+                        val best = pickBest(pureResult, comboResult, fdroidResult, mirrorResult, githubResult)
                         val foundSources = sourceVersions.isNotEmpty()
 
                         // Use real versionCode from FDroid if available, else best source
@@ -149,9 +153,9 @@ class AppUpdateRepositoryImpl @Inject constructor(
     }
 
     private fun pickBest(
-        pure: SourceResult?, combo: SourceResult?, fdroid: SourceResult?, mirror: SourceResult?
+        pure: SourceResult?, combo: SourceResult?, fdroid: SourceResult?, mirror: SourceResult?, github: SourceResult?
     ): SourceResult? {
-        val list = listOfNotNull(pure, combo, fdroid, mirror)
+        val list = listOfNotNull(pure, combo, fdroid, mirror, github)
         if (list.isEmpty()) return null
         if (list.size == 1) return list.first()
         return list.maxWithOrNull { a, b ->
@@ -184,6 +188,11 @@ class AppUpdateRepositoryImpl @Inject constructor(
         } ?: items.firstOrNull() ?: return null
         val version = match.version ?: return null
         SourceResult(version, 0L, match.pageUrl, null, UpdateSource.APKMIRROR)
+    } catch (_: Exception) { null }
+
+    private suspend fun tryGitHub(pkg: String): SourceResult? = try {
+        val r = gitHubService.checkRelease(pkg) ?: return null
+        SourceResult(r.versionName, r.versionCode, r.downloadUrl, null, UpdateSource.GITHUB)
     } catch (_: Exception) { null }
 }
 

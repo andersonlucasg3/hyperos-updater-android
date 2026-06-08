@@ -114,6 +114,7 @@ fun SourceBadge(source: UpdateSource) {
         UpdateSource.APKPURE -> "APKPure" to MaterialTheme.colorScheme.primary
         UpdateSource.APKCOMBO -> "APKCombo" to MaterialTheme.colorScheme.tertiary
         UpdateSource.FDROID -> "F-Droid" to MaterialTheme.colorScheme.secondary
+        UpdateSource.GITHUB -> "GitHub" to MaterialTheme.colorScheme.primaryContainer
         UpdateSource.TRACKER -> "System" to MaterialTheme.colorScheme.secondary
         UpdateSource.UNTRACKED -> "not tracked" to MaterialTheme.colorScheme.onSurfaceVariant
     }
