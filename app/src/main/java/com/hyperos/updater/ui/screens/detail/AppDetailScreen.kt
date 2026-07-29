@@ -163,6 +163,19 @@ fun AppDetailScreen(
                         } else if (state.isInstalled) {
                             Text("Atualizado", style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.primary)
+                        } else if (state.isSearchOrigin && state.latestVersion.isNotBlank()) {
+                            // Search origin, app not installed: show what the source offers
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Column {
+                                    Text("Disponível", style = MaterialTheme.typography.labelSmall)
+                                    Text(state.latestVersion, style = MaterialTheme.typography.bodyLarge,
+                                        color = MaterialTheme.colorScheme.primary)
+                                }
+                                state.searchSource?.let {
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    SourceBadge(it)
+                                }
+                            }
                         }
                     }
                 }

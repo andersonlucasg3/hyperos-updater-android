@@ -185,7 +185,7 @@ class AppDetailViewModel @Inject constructor(
                 }
 
                 // Load history for each source async, fail-soft per source
-                loadHistory(result.sourceVersions, result.appName)
+                loadHistory(result.appName)
 
             } catch (e: Exception) {
                 Log.e("AppDetailVM", "Load failed", e)
@@ -252,86 +252,84 @@ class AppDetailViewModel @Inject constructor(
 
     // ── History loading ───────────────────────────────────────────────────────
 
-    private fun loadHistory(sourceVersions: List<SourceVersion>, appName: String) {
-        val svSources = sourceVersions.map { it.source }.toSet()
+    /**
+     * Load version history from every source that supports it — ALWAYS, not gated
+     * on sourceVersions (that list only contains sources with a NEWER version, so
+     * up-to-date apps would get an empty page). Each source fails soft: unknown
+     * package there just yields an empty group.
+     */
+    private fun loadHistory(appName: String) {
+        val pkg = _state.value.packageName
 
-        if (UpdateSource.MEMEOS in svSources) {
-            _state.update { it.copy(isLoadingMemeosHistory = true) }
-            viewModelScope.launch {
-                try {
-                    val history = memeOsService.getAppHistory(_state.value.packageName)
-                    _state.update {
-                        it.copy(
-                            memeosHistory = history.map { h ->
-                                MemeOsHistoryItem(h.version, h.versionCode, h.region, h.date, h.sizeBytes, h.pageUrl)
-                            },
-                            isLoadingMemeosHistory = false
-                        )
-                    }
-                } catch (e: Exception) {
-                    Log.d("AppDetailVM", "MemeOS history failed: ${e.message}")
-                    _state.update { it.copy(isLoadingMemeosHistory = false) }
+        _state.update { it.copy(isLoadingMemeosHistory = true) }
+        viewModelScope.launch {
+            try {
+                val history = memeOsService.getAppHistory(pkg)
+                _state.update {
+                    it.copy(
+                        memeosHistory = history.map { h ->
+                            MemeOsHistoryItem(h.version, h.versionCode, h.region, h.date, h.sizeBytes, h.pageUrl)
+                        },
+                        isLoadingMemeosHistory = false
+                    )
                 }
+            } catch (e: Exception) {
+                Log.d("AppDetailVM", "MemeOS history failed: ${e.message}")
+                _state.update { it.copy(isLoadingMemeosHistory = false) }
             }
         }
 
-        if (UpdateSource.FDROID in svSources) {
-            _state.update { it.copy(isLoadingFdroidHistory = true) }
-            viewModelScope.launch {
-                try {
-                    val history = fDroidService.getVersionHistory(_state.value.packageName)
-                    _state.update {
-                        it.copy(
-                            fdroidHistory = history.map { h ->
-                                FDroidHistoryItem(h.versionName, h.versionCode, h.apkUrl)
-                            },
-                            isLoadingFdroidHistory = false
-                        )
-                    }
-                } catch (e: Exception) {
-                    Log.d("AppDetailVM", "FDroid history failed: ${e.message}")
-                    _state.update { it.copy(isLoadingFdroidHistory = false) }
+        _state.update { it.copy(isLoadingFdroidHistory = true) }
+        viewModelScope.launch {
+            try {
+                val history = fDroidService.getVersionHistory(pkg)
+                _state.update {
+                    it.copy(
+                        fdroidHistory = history.map { h ->
+                            FDroidHistoryItem(h.versionName, h.versionCode, h.apkUrl)
+                        },
+                        isLoadingFdroidHistory = false
+                    )
                 }
+            } catch (e: Exception) {
+                Log.d("AppDetailVM", "FDroid history failed: ${e.message}")
+                _state.update { it.copy(isLoadingFdroidHistory = false) }
             }
         }
 
-        if (UpdateSource.GITHUB in svSources) {
-            _state.update { it.copy(isLoadingGithubHistory = true) }
-            viewModelScope.launch {
-                try {
-                    val history = gitHubService.getReleaseHistory(_state.value.packageName)
-                    _state.update {
-                        it.copy(
-                            githubHistory = history.map { h ->
-                                GitHubHistoryItem(h.tag, h.name, h.publishedAt, h.apkUrl)
-                            },
-                            isLoadingGithubHistory = false
-                        )
-                    }
-                } catch (e: Exception) {
-                    Log.d("AppDetailVM", "GitHub history failed: ${e.message}")
-                    _state.update { it.copy(isLoadingGithubHistory = false) }
+        _state.update { it.copy(isLoadingGithubHistory = true) }
+        viewModelScope.launch {
+            try {
+                val history = gitHubService.getReleaseHistory(pkg)
+                _state.update {
+                    it.copy(
+                        githubHistory = history.map { h ->
+                            GitHubHistoryItem(h.tag, h.name, h.publishedAt, h.apkUrl)
+                        },
+                        isLoadingGithubHistory = false
+                    )
                 }
+            } catch (e: Exception) {
+                Log.d("AppDetailVM", "GitHub history failed: ${e.message}")
+                _state.update { it.copy(isLoadingGithubHistory = false) }
             }
         }
 
-        if (UpdateSource.APKMIRROR in svSources) {
-            _state.update { it.copy(isLoadingApkmirrorHistory = true) }
-            viewModelScope.launch {
-                try {
-                    val versions = apkMirrorService.getRecentVersions(appName)
-                    _state.update {
-                        it.copy(
-                            apkmirrorHistory = versions.map { v ->
-                                ApkMirrorHistoryItem(v.version, v.pageUrl)
-                            },
-                            isLoadingApkmirrorHistory = false
-                        )
-                    }
-                } catch (e: Exception) {
-                    Log.d("AppDetailVM", "APKMirror history failed: ${e.message}")
-                    _state.update { it.copy(isLoadingApkmirrorHistory = false) }
+        _state.update { it.copy(isLoadingApkmirrorHistory = true) }
+        viewModelScope.launch {
+            try {
+                val versions = apkMirrorService.getRecentVersions(appName)
+                _state.update {
+                    it.copy(
+                        apkmirrorHistory = versions.map { v ->
+                            ApkMirrorHistoryItem(v.version, v.pageUrl)
+                        },
+                        isLoadingApkmirrorHistory = false
+                    )
                 }
+            } catch (e: Exception) {
+                Log.d("AppDetailVM", "APKMirror history failed: ${e.message}")
+                _state.update { it.copy(isLoadingApkmirrorHistory = false) }
             }
         }
     }
@@ -416,7 +414,7 @@ class AppDetailViewModel @Inject constructor(
                         isChecking = false
                     )
                 }
-                loadHistory(result.sourceVersions, result.appName)
+                loadHistory(result.appName)
             } catch (e: Exception) {
                 _state.update { it.copy(isChecking = false, error = e.message) }
             }

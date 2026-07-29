@@ -1,5 +1,6 @@
 package com.hyperos.updater.ui.screens.settings
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -126,8 +127,23 @@ fun SettingsTab(
 
                     Spacer(modifier = Modifier.height(12.dp))
 
+                    // Button morphs into "Baixar atualização" when a release is available
+                    val availableRelease = (selfUpdateState as? SelfUpdateState.Available)?.release
+                    val showDownloadAction = availableRelease != null && selfUpdateDownload == null
+
                     Button(
-                        onClick = { viewModel.checkSelfUpdate() },
+                        onClick = {
+                            if (showDownloadAction && availableRelease != null) {
+                                val fileName = AppUpdatesViewModel.buildApkFileName(
+                                    availableRelease.apkUrl!!, "HyperOS-Updater", availableRelease.version
+                                )
+                                viewModel.downloadManager.startDownload(
+                                    availableRelease.apkUrl, fileName, "SELFUPDATE", "HyperOS Updater"
+                                )
+                            } else {
+                                viewModel.checkSelfUpdate()
+                            }
+                        },
                         enabled = selfUpdateState !is SelfUpdateState.Checking
                     ) {
                         if (selfUpdateState is SelfUpdateState.Checking) {
@@ -137,8 +153,11 @@ fun SettingsTab(
                                 color = MaterialTheme.colorScheme.onPrimary
                             )
                             Spacer(modifier = Modifier.width(8.dp))
+                        } else if (showDownloadAction) {
+                            Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
                         }
-                        Text("Verificar atualização")
+                        Text(if (showDownloadAction) "Baixar atualização" else "Verificar atualização")
                     }
 
                     Spacer(modifier = Modifier.height(12.dp))
@@ -348,6 +367,8 @@ private fun AvailableReleaseCard(
     onDownload: (SelfUpdateRelease) -> Unit,
     onDismiss: () -> Unit
 ) {
+    var notesExpanded by remember { mutableStateOf(false) }
+
     Column {
         Text(
             "Nova versão disponível: v${release.version}",
@@ -362,18 +383,10 @@ private fun AvailableReleaseCard(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
-        if (!release.changelog.isNullOrBlank()) {
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                release.changelog,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        // Download progress or action button
+        // Download progress or status (above release notes)
         if (download != null) {
             val dl = download
             when (dl.progress.status) {
@@ -429,11 +442,29 @@ private fun AvailableReleaseCard(
                     }
                 }
             }
-        } else {
-            Button(onClick = { onDownload(release) }) {
-                Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Baixar atualização")
+        }
+
+        // Release notes (collapsible)
+        if (!release.changelog.isNullOrBlank()) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth().clickable { notesExpanded = !notesExpanded },
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text("Notas da versão", style = MaterialTheme.typography.bodyMedium)
+                Icon(
+                    if (notesExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                    contentDescription = if (notesExpanded) "Recolher" else "Expandir"
+                )
+            }
+            if (notesExpanded) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    release.changelog,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         }
     }
