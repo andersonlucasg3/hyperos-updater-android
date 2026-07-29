@@ -258,30 +258,68 @@ class AppUpdateRepositoryImpl @Inject constructor(
         }
     }
 
+    /**
+     * Two-phase third-party update check.
+     *
+     * Phase 1 (cheap JSON APIs, parallel): Aptoide, F-Droid, GitHub, Tencent.
+     *   If ANY phase-1 source returns a non-null result — the app is KNOWN to at
+     *   least one API — we skip phase 2 entirely and build the AppUpdate from
+     *   phase-1 results alone (same pickBest / isNewer plumbing).
+     *
+     * Phase 2 (HTML scrapers, parallel): APKPure, APKCombo, APKMirror, MemeOS,
+     *   Uptodown. Only runs when every phase-1 source returned null (app unknown
+     *   to all JSON APIs). These scrapers are ~4-8× slower than JSON APIs, so
+     *   avoiding them in the common case saves significant wall-clock time.
+     *
+     * Trade-off: less cross-checking when an API resolves the app — a version
+     *   that only exists on a scraper-only source will be missed if ANY API
+     *   already knows the package. In practice the JSON APIs (especially F-Droid
+     *   and Aptoide) cover the vast majority of packages.
+     */
     private suspend fun checkOneThirdPartyApp(app: AppInfo, appType: AppType = AppType.THIRD_PARTY): AppUpdate =
         coroutineScope {
             try {
                 trackedAppDao.updateCurrentVersion(app.packageName, app.versionName, System.currentTimeMillis())
 
-                // Query all eight sources in parallel
-                val pureDeferred = async { tryApkPure(app.packageName) }
-                val comboDeferred = async { tryApkCombo(app.packageName) }
+                // ---- Phase 1: cheap JSON APIs ----
                 val aptoideDeferred = async { tryAptoide(app.packageName) }
                 val fdroidDeferred = async { tryFDroid(app.packageName) }
-                val mirrorDeferred = async { tryApkMirror(app) }
                 val githubDeferred = async { tryGitHub(app.packageName) }
-                val memeosDeferred = async { tryMemeOs(app.packageName) }
-                val uptodownDeferred = async { tryUptodown(app) }
                 val tencentDeferred = async { tryTencent(app.packageName) }
-                val pureResult = pureDeferred.await()
-                val comboResult = comboDeferred.await()
                 val aptoideResult = aptoideDeferred.await()
                 val fdroidResult = fdroidDeferred.await()
-                val mirrorResult = mirrorDeferred.await()
                 val githubResult = githubDeferred.await()
-                val memeosResult = memeosDeferred.await()
-                val uptodownResult = uptodownDeferred.await()
                 val tencentResult = tencentDeferred.await()
+
+                val phase1Results = listOfNotNull(aptoideResult, fdroidResult, githubResult, tencentResult)
+
+                // ---- Phase 2: HTML scrapers (only when no API knows this app) ----
+                val pureResult: SourceResult?
+                val comboResult: SourceResult?
+                val mirrorResult: SourceResult?
+                val memeosResult: SourceResult?
+                val uptodownResult: SourceResult?
+
+                if (phase1Results.isEmpty()) {
+                    Log.d("AppUpdateRepo", "Phase 2 scraping for ${app.packageName} — no API source knows this app")
+                    val pureDeferred = async { tryApkPure(app.packageName) }
+                    val comboDeferred = async { tryApkCombo(app.packageName) }
+                    val mirrorDeferred = async { tryApkMirror(app) }
+                    val memeosDeferred = async { tryMemeOs(app.packageName) }
+                    val uptodownDeferred = async { tryUptodown(app) }
+                    pureResult = pureDeferred.await()
+                    comboResult = comboDeferred.await()
+                    mirrorResult = mirrorDeferred.await()
+                    memeosResult = memeosDeferred.await()
+                    uptodownResult = uptodownDeferred.await()
+                } else {
+                    Log.d("AppUpdateRepo", "Phase 2 skipped for ${app.packageName} — found in ${phase1Results.joinToString { it.source.name }}")
+                    pureResult = null
+                    comboResult = null
+                    mirrorResult = null
+                    memeosResult = null
+                    uptodownResult = null
+                }
 
                 // Collect all source versions that are genuinely newer than installed
                 val allSourceResults = listOfNotNull(pureResult, comboResult, aptoideResult, fdroidResult, mirrorResult, githubResult, memeosResult, uptodownResult, tencentResult)

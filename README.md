@@ -62,7 +62,8 @@ See [docs/](docs/) for detailed documentation.
 ## Current Status (v1)
 
 ### Working
-- App scanning com 9 fontes em paralelo (APKPure, APKCombo, Aptoide, F-Droid, APKMirror, GitHub, MemeOs, Uptodown, Tencent)
+- App scanning com 9 fontes em pipeline de duas fases: APIs JSON baratas primeiro (Aptoide, F-Droid, GitHub, Tencent); scrapers HTML (APKPure, APKCombo, APKMirror, MemeOS, Uptodown) só rodam quando nenhuma API conhece o app — scan ~4-8× mais rápido no caso comum
+- OkHttp tuning: ConnectionPool 32 idle/5min, maxRequestsPerHost 16, connect 10s/read 15s/write 15s, cache HTTP 20MB em disco, sem callTimeout (não mataria downloads grandes — só gap de leitura)
 - Verificação de ROMs xiaomi.eu via RSS SourceForge (OS Updates)
 - Busca por nome em múltiplas fontes (Find & Install)
 - Instalação root via su com stdin pipe e `-i com.android.vending` (método primário)

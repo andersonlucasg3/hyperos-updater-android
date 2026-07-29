@@ -188,6 +188,32 @@ Only sources with direct APK URLs are eligible: `DIRECT_DOWNLOAD_SOURCES = {APTO
 APKMirror and Uptodown are skipped — they require intermediate pages or WebView.
 MEMEOS provides direct signed URLs via `MemeOsService.resolveDirectDownloadUrl()` (two HTTP GETs, bypasses the 20-second countdown).
 
+### Fast-Path de Fontes (Two-Phase Pipeline)
+`checkOneThirdPartyApp` in `AppUpdateRepositoryImpl` uses a two-phase pipeline:
+
+**Phase 1 (cheap JSON APIs, parallel):** Aptoide (`ws75.aptoide.com/api/7/getApp`), F-Droid (`f-droid.org/api/v1/packages`), GitHub (`api.github.com/repos/.../releases/latest`), Tencent (`a.app.sj.qq.com/o/simple.jsp`). These are simple HTTP+JSON calls with no parsing overhead.
+
+**Phase 2 (HTML scrapers, parallel):** APKPure, APKCombo, APKMirror, MemeOS, Uptodown. Only runs when **every** phase-1 source returned `null` — i.e. the app is unknown to all JSON APIs. These scrapers are ~4-8× slower than JSON APIs because they involve Jsoup HTML parsing and often multiple HTTP round-trips.
+
+**Trade-off documented in KDoc:** when an API resolves the app, scrapers are skipped entirely — less cross-checking in that specific case. In practice the JSON APIs (especially F-Droid and Aptoide) cover the vast majority of packages.
+
+`Log.d("AppUpdateRepo", ...)` shows `Phase 2 scraping for <pkg> — no API source knows this app` or `Phase 2 skipped for <pkg> — found in <sources>` per package. System apps (MemeOs catalog) are untouched — they still use `checkOneSystemApp`.
+
+### OkHttp Tuning
+`NetworkModule.kt` configures a shared `OkHttpClient` (also used by `DownloadUpdateUseCase` for large APK downloads):
+
+| Setting | Value | Rationale |
+|---------|-------|-----------|
+| `ConnectionPool` | 32 idle connections, 5 min keep-alive | 4× larger pool for 6 concurrent apps × multiple sources |
+| `Dispatcher.maxRequestsPerHost` | 16 | Up from default 5 — more parallelism to the same host |
+| `connectTimeout` | 10 s | Tight — dead hosts fail fast |
+| `readTimeout` | 15 s | Gap timeout: a download that is continuously streaming is fine; a scraper that stalls mid-response dies in 15 s. Changed from 120 s — 120 s was too lenient for hung scrapers |
+| `writeTimeout` | 15 s | Symmetric with read |
+| `Cache` | 20 MiB on-disk (`http_cache`) | Caches HTTP responses — repeated metadata calls (same package across scans) hit the cache |
+| **NO `callTimeout`** | — | `callTimeout` applies to the ENTIRE call including body streaming. A 180 MB APK on a slow network could exceed any reasonable global timeout. The per-read-gap `readTimeout` (15 s) is safe for downloads while still preventing hung scrapers from stalling forever. **Intentionally omitted.** |
+
+The 120 s → 15 s `readTimeout` change does NOT kill slow-but-continuous downloads — `readTimeout` is per-read-gap, not cumulative. Only true stalls (no bytes for 15 s) are killed.
+
 ## Known Issues
 - OTA code still exists but is unwired from v1 (OTA tab removed, `ota_check` worker cancelled in `WorkerScheduler`)
 - Xiaomi GetApps (`app.market.xiaomi.com/apm/app`) evaluated and NOT added — requires undisclosed params/signing (HTTP 400 "参数不能为空"); would need MITM reverse engineering
