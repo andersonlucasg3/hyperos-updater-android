@@ -13,6 +13,7 @@ import com.hyperos.updater.ui.components.DownloadProgress
 import com.hyperos.updater.ui.components.DownloadStatus
 import com.hyperos.updater.domain.installer.RootApkInstaller
 import com.hyperos.updater.domain.usecase.DownloadUpdateUseCase
+import com.hyperos.updater.util.WearOsDetector
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -107,6 +108,17 @@ class DownloadManager @Inject constructor(
                 // CDN URLs often lack an extension — detect bundles by content and fix
                 // the file type before dispatching to the install flow
                 val finalFile = adjustArchiveType(file)
+
+                // Wear OS guard: scan manifest for android.hardware.type.watch
+                // Blocks install of watch APKs on phones
+                if (isWearOsApk(finalFile)) {
+                    Log.w("DownloadManager", "Wear OS APK detected, blocking install: ${finalFile.name}")
+                    _downloads.update { it + (key to ActiveDownload(key, appName, finalFile.name,
+                        DownloadProgress(fileName = finalFile.name, status = DownloadStatus.ERROR,
+                            errorMessage = "Este APK é para Wear OS (relógio), não para o telefone"))) }
+                    return@launch
+                }
+
                 runInstall(finalFile, key, appName, finalFile.name)
             } catch (e: Exception) {
                 Log.e("DownloadManager", "Download failed: $key", e)
@@ -195,6 +207,42 @@ class DownloadManager @Inject constructor(
             Log.w("DownloadManager", "Bundle detected but rename failed: ${file.name}")
             file
         }
+    }
+
+    /**
+     * Checks whether the downloaded file is a Wear OS APK by inspecting its manifest.
+     *
+     * 1. Preferred: [PackageManager.getPackageArchiveInfo] → [PackageInfo.reqFeatures]
+     *    → any [FeatureInfo.name] == "android.hardware.type.watch".
+     * 2. Fallback: zip-based byte scan of AndroidManifest.xml (via [WearOsDetector]).
+     *
+     * For split bundles (XAPK/APKM with no root manifest), inner .apk entries are
+     * scanned recursively.
+     *
+     * Fail-soft: returns `false` if the manifest cannot be read, so legitimate apps
+     * are never blocked by a read error.
+     */
+    private fun isWearOsApk(file: File): Boolean {
+        // 1. Preferred: PackageManager
+        try {
+            val info = app.packageManager.getPackageArchiveInfo(file.absolutePath, 0)
+            info?.reqFeatures?.forEach { feature ->
+                if (feature.name == "android.hardware.type.watch") {
+                    Log.i("DownloadManager", "Wear OS detected via PackageManager for ${file.name}")
+                    return true
+                }
+            }
+        } catch (e: Exception) {
+            Log.d("DownloadManager", "PackageManager Wear check failed: ${e.message}")
+        }
+
+        // 2. Fallback: zip-based manifest scan (handles bundles too)
+        if (WearOsDetector.scanApkForWearFeature(file)) {
+            Log.i("DownloadManager", "Wear OS detected via manifest scan for ${file.name}")
+            return true
+        }
+
+        return false
     }
 
     /** Dispatches to the right install method based on file extension. */

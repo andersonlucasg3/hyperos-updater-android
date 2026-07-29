@@ -152,6 +152,34 @@ installSplitApk() → extrai APKs → rootInstallMulti()
 
 **Regra:** um APK real **sempre** tem `AndroidManifest.xml` na raiz do ZIP. Um bundle (XAPK/APKM) tem APKs aninhados sem manifest no nível raiz. Isso é confiável e não depende de heurísticas de nome de arquivo.
 
+### Wear OS Install Guard (`isWearOsApk`)
+
+Após o download (e após `adjustArchiveType`), o APK é verificado para builds de relógio (Wear OS) antes da instalação:
+
+```
+Download concluído → adjustArchiveType (corrige extensão)
+  ↓
+isWearOsApk(finalFile):
+  1. PackageManager.getPackageArchiveInfo() → reqFeatures
+     → algum FeatureInfo.name == "android.hardware.type.watch"?
+     ├─ SIM → retorna true (Wear OS detectado)
+     └─ NÃO → passo 2
+  2. WearOsDetector.scanApkForWearFeature() — byte-scan do manifest
+     → busca "android.hardware.type.watch" em UTF-8 e UTF-16LE
+     → para bundles (XAPK/APKM sem manifest raiz), varre APKs internos
+     ├─ Encontrado → retorna true
+     └─ Não encontrado → retorna false
+  ↓
+Se true:
+  → status = ERROR
+  → errorMessage = "Este APK é para Wear OS (relógio), não para o telefone"
+  → instalação BLOQUEADA
+```
+
+**Motivação:** algumas variantes Wear OS compartilham o mesmo nome de app e package que a versão phone (ex.: Spotify, WhatsApp). O filtro de listing (Layer 1) cobre resultados de busca e RSS, mas um APK pode chegar por outros caminhos (download direto de URL, cache, etc.). A guarda de instalação (Layer 2) é a última linha de defesa — **sempre** verificada pós-download.
+
+**Fail-soft:** qualquer erro de leitura do ZIP/manifest retorna `false` (permite a instalação). Apenas uma detecção positiva do marker bloqueia.
+
 ## Cancellation
 
 `downloadJob.cancel()` cancels the coroutine. The partial file is deleted on error/cancel.

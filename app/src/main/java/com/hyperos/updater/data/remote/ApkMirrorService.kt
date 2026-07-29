@@ -3,6 +3,7 @@ package com.hyperos.updater.data.remote
 import android.util.Log
 import com.hyperos.updater.data.remote.dto.ApkMirrorRssItem
 import com.hyperos.updater.util.NetworkUtils
+import com.hyperos.updater.util.WearOsDetector
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -54,6 +55,8 @@ class ApkMirrorService @Inject constructor(
                 doc.select(".appRow").forEach { row ->
                     val h5 = row.select("h5.appRowTitle").firstOrNull() ?: return@forEach
                     val fullTitle = h5.attr("title").trim()
+                    // Skip Wear OS variants (e.g. "Spotify Wear OS")
+                    if (WearOsDetector.isWearOsListing(fullTitle)) return@forEach
                     val link = h5.select("a.fontBlack, a[href*=/apk/]").firstOrNull() ?: return@forEach
                     val pageUrl = link.attr("href").let {
                         if (it.startsWith("http")) it else "https://www.apkmirror.com$it"
@@ -172,7 +175,8 @@ class ApkMirrorService @Inject constructor(
                     }
                     XmlPullParser.END_TAG -> {
                         if (parser.name == "item") {
-                            if (title.isNotBlank() && link.isNotBlank()) {
+                            if (title.isNotBlank() && link.isNotBlank()
+                                && !WearOsDetector.isWearOsListing(title)) {
                                 items.add(ApkMirrorRssItem(title, link, pubDate))
                             }
                             insideItem = false

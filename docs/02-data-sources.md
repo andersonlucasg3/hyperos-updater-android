@@ -33,6 +33,7 @@
 - **User-Agent:** `APKUpdater-v3.0.3` (special UA agreed with APKMirror)
 - **Parsing:** `.appRow` > `h5.appRowTitle` > `a.fontBlack`
 - **Download:** Requires WebView (JS generates CDN URL). Captured via assisted `DownloadActivity`.
+- **Wear OS filter:** Search results and RSS feed items are filtered by `WearOsDetector.isWearOsListing()` — variants with "Wear OS", "WearOS", "(Wear)", "Android Wear", or "Wear Watch" in the title are excluded at the source level.
 
 ### Aptoide (API v7)
 - **Version check:** `GET https://ws75.aptoide.com/api/7/getApp?package_name={pkg}`

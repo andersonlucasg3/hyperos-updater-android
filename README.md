@@ -22,6 +22,7 @@ Android app for Xiaomi devices running HyperOS that manages app and system updat
 - **Filtros** — chip "Updatable" filtra apenas apps com atualização disponível (persistido em `updatable_filter_enabled`); chip "Sistema" controla exibição de apps de sistema (persistido em `show_system_apps`) e também ESCOPA o scan (desligado = apenas third-party)
 - **Scan UX** — progresso determinado "x de y" durante o scan; auto-scan roda apenas uma vez por abertura do app (`checkAllAppsIfNeeded`); troca de abas não reescaneia; botão manual de refresh inalterado
 - **Estado INSTALLING** — barra indeterminada + "Instalando..." nos cards (sem barra 0% que desaparecia); botão cancelar substituído por spinner durante a instalação
+- **Wear OS Protection** — two-layer guard against watch APKs: listing filter (regex on titles/variant names in search results, RSS feed and history lists) + hard install guard (manifest byte-scan for `android.hardware.type.watch` via PackageManager → zip fallback → bundle inner-APK scan; blocks install with clear error message)
 - **App Detail Page** — página dedicada acessada pelo botão info (ⓘ) nos cards; cabeçalho (ícone, nome, package, versão/código instalados, instalador, badge sistema); status da versão com recheck automático (ao abrir); search-origin sem app instalado mostra "Disponível" com versão e badge da fonte; "Versões por Fonte" com download inline: installed-app mostra sourceVersions (fontes com versão mais nova), search-origin mostra todos os searchHits agregados (pipe-encoded `EXTRA_SEARCH_HITS`); download roteado pelas mesmas regras das abas; "Histórico de versões" colapsável por fonte — CARREGADO INCONDICIONALMENTE (v1.1.1 fix: não mais restrito a sourceVersions; apps atualizados também recebem histórico); MemeOS `getAppHistory` full, F-Droid `getVersionHistory` todas, GitHub `getReleaseHistory`, APKMirror `getRecentVersions`; demais fontes (APKPure/APKCombo/Aptoide/Uptodown/Tencent) mostram latest + link "abrir página de versões"; ações (Pular versão, Ocultar app, Verificar novamente); badge "instalada" na versão corrente
 - **Busca → Detail** — resultados de busca abrem a detail page com `EXTRA_SEARCH_HITS` (pipe-joined `SOURCE|VERSION|URL`); "Versões por Fonte" renderiza todos os hits do agrupamento; download por fonte individual; compara com versão instalada se packageName disponível
 - **Material 3 UI** — dynamic color, dark mode, 3 abas (Find & Install, Updates, Settings)
@@ -77,6 +78,8 @@ See [docs/](docs/) for detailed documentation.
 - Detecção de XAPK/APKM por conteúdo (ZIP sem AndroidManifest.xml → renomeia .xapk)
 - Estado INSTALLING com spinner + barra indeterminada (sem 0% que desaparecia)
 - 51 testes unitários (`VersionComparatorTest`)
+- Wear OS detection: 22 tests (`WearOsDetectorTest`) — listing regex + byte-scan (UTF-8/UTF-16LE)
+- Proteção Wear OS em duas camadas: filtro de listing (regex em títulos/nomes de variantes) + guarda de instalação (scan de manifest com fallback zip, inclusive bundles XAPK/APKM)
 
 ### Known Issues
 - **OTA:** código antigo não removido mas desligado do v1 (aba OTA removida, worker cancelado)

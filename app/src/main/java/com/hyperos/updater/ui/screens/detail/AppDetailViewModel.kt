@@ -25,6 +25,7 @@ import com.hyperos.updater.domain.repository.PreferencesRepository
 import com.hyperos.updater.ui.components.DownloadProgress
 import com.hyperos.updater.ui.components.DownloadStatus
 import com.hyperos.updater.ui.components.isOngoing
+import com.hyperos.updater.util.WearOsDetector
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -279,7 +280,9 @@ class AppDetailViewModel @Inject constructor(
                 val history = memeOsService.getAppHistory(pkg)
                 _state.update {
                     it.copy(
-                        memeosHistory = history.map { h ->
+                        memeosHistory = history
+                            .filter { h -> !WearOsDetector.isWearOsListing(h.version) }
+                            .map { h ->
                             MemeOsHistoryItem(h.version, h.versionCode, h.region, h.date, h.sizeBytes, h.pageUrl)
                         },
                         isLoadingMemeosHistory = false
@@ -297,7 +300,9 @@ class AppDetailViewModel @Inject constructor(
                 val history = fDroidService.getVersionHistory(pkg)
                 _state.update {
                     it.copy(
-                        fdroidHistory = history.map { h ->
+                        fdroidHistory = history
+                            .filter { h -> !WearOsDetector.isWearOsListing(h.versionName) }
+                            .map { h ->
                             FDroidHistoryItem(h.versionName, h.versionCode, h.apkUrl)
                         },
                         isLoadingFdroidHistory = false
@@ -315,7 +320,9 @@ class AppDetailViewModel @Inject constructor(
                 val history = gitHubService.getReleaseHistory(pkg)
                 _state.update {
                     it.copy(
-                        githubHistory = history.map { h ->
+                        githubHistory = history
+                            .filter { h -> !WearOsDetector.isWearOsListing(h.name) && !WearOsDetector.isWearOsListing(h.tag) }
+                            .map { h ->
                             GitHubHistoryItem(h.tag, h.name, h.publishedAt, h.apkUrl)
                         },
                         isLoadingGithubHistory = false
@@ -333,7 +340,9 @@ class AppDetailViewModel @Inject constructor(
                 val versions = apkMirrorService.getRecentVersions(appName)
                 _state.update {
                     it.copy(
-                        apkmirrorHistory = versions.map { v ->
+                        apkmirrorHistory = versions
+                            .filter { v -> !WearOsDetector.isWearOsListing(v.version) }
+                            .map { v ->
                             ApkMirrorHistoryItem(v.version, v.pageUrl)
                         },
                         isLoadingApkmirrorHistory = false
@@ -363,7 +372,9 @@ class AppDetailViewModel @Inject constructor(
                         }
                         _state.update {
                             it.copy(
-                                apkmirrorHistory = versions.map { v ->
+                                apkmirrorHistory = versions
+                                    .filter { v -> !WearOsDetector.isWearOsListing(v.version) }
+                                    .map { v ->
                                     ApkMirrorHistoryItem(v.version, v.pageUrl)
                                 },
                                 isLoadingApkmirrorHistory = false
@@ -387,7 +398,9 @@ class AppDetailViewModel @Inject constructor(
                             val history = memeOsService.getAppHistory(pkg)
                             _state.update {
                                 it.copy(
-                                    memeosHistory = history.map { h ->
+                                    memeosHistory = history
+                                        .filter { h -> !WearOsDetector.isWearOsListing(h.version) }
+                                        .map { h ->
                                         MemeOsHistoryItem(h.version, h.versionCode, h.region, h.date, h.sizeBytes, h.pageUrl)
                                     },
                                     isLoadingMemeosHistory = false

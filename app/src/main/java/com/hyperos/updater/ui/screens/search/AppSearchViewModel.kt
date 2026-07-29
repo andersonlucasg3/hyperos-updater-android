@@ -12,6 +12,7 @@ import com.hyperos.updater.data.remote.UptodownService
 import com.hyperos.updater.domain.DownloadManager
 import com.hyperos.updater.domain.model.UpdateSource
 import com.hyperos.updater.util.VersionComparator
+import com.hyperos.updater.util.WearOsDetector
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -98,12 +99,12 @@ class AppSearchViewModel @Inject constructor(
             val uptodown = async { tryUptodownSearch(query) }
 
             var flat = emptyList<FlatResult>()
-            val m = mirror.await(); if (id == searchId) { flat = m; _state.value = _state.value.copy(results = group(flat)) }
-            val p = pure.await(); if (id == searchId) { flat = (flat + p).distinctBy { it.downloadPageUrl }; _state.value = _state.value.copy(results = group(flat)) }
-            val c = combo.await(); if (id == searchId) { flat = (flat + c).distinctBy { it.downloadPageUrl }; _state.value = _state.value.copy(results = group(flat)) }
-            val e = memeos.await(); if (id == searchId) { flat = (flat + e).distinctBy { it.downloadPageUrl }; _state.value = _state.value.copy(results = group(flat)) }
-            val a = aptoide.await(); if (id == searchId) { flat = (flat + a).distinctBy { it.downloadPageUrl }; _state.value = _state.value.copy(results = group(flat)) }
-            val u = uptodown.await(); if (id == searchId) { flat = (flat + u).distinctBy { it.downloadPageUrl }; _state.value = _state.value.copy(results = group(flat)) }
+            val m = mirror.await().filter { !WearOsDetector.isWearOsListing(it.appName) && !WearOsDetector.isWearOsListing(it.versionName) }; if (id == searchId) { flat = m; _state.value = _state.value.copy(results = group(flat)) }
+            val p = pure.await().filter { !WearOsDetector.isWearOsListing(it.appName) && !WearOsDetector.isWearOsListing(it.versionName) }; if (id == searchId) { flat = (flat + p).distinctBy { it.downloadPageUrl }; _state.value = _state.value.copy(results = group(flat)) }
+            val c = combo.await().filter { !WearOsDetector.isWearOsListing(it.appName) && !WearOsDetector.isWearOsListing(it.versionName) }; if (id == searchId) { flat = (flat + c).distinctBy { it.downloadPageUrl }; _state.value = _state.value.copy(results = group(flat)) }
+            val e = memeos.await().filter { !WearOsDetector.isWearOsListing(it.appName) && !WearOsDetector.isWearOsListing(it.versionName) }; if (id == searchId) { flat = (flat + e).distinctBy { it.downloadPageUrl }; _state.value = _state.value.copy(results = group(flat)) }
+            val a = aptoide.await().filter { !WearOsDetector.isWearOsListing(it.appName) && !WearOsDetector.isWearOsListing(it.versionName) }; if (id == searchId) { flat = (flat + a).distinctBy { it.downloadPageUrl }; _state.value = _state.value.copy(results = group(flat)) }
+            val u = uptodown.await().filter { !WearOsDetector.isWearOsListing(it.appName) && !WearOsDetector.isWearOsListing(it.versionName) }; if (id == searchId) { flat = (flat + u).distinctBy { it.downloadPageUrl }; _state.value = _state.value.copy(results = group(flat)) }
             if (id == searchId) _state.value = _state.value.copy(isSearching = false)
         }
     }

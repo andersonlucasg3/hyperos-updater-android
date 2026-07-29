@@ -148,6 +148,26 @@ SourceForge RSS `https://sourceforge.net/projects/xiaomi-eu-multilang-miui-roms/
 ### Tencent MyApp (应用宝) — 9th Source
 Endpoint: `GET https://a.app.sj.qq.com/o/simple.jsp?pkgname=<pkg>`. HTML page with `window.systemData = {...}` JSON. Parse `appDetail.versionName`, `appDetail.apkUrl64` (preferred) / `appDetail.apkUrl`. Domain resolves only from Chinese networks — fail soft (any error returns null). `UpdateSource.TENCENT`. Direct-download source (`DIRECT_DOWNLOAD_SOURCES` includes TENCENT in AppCheckWorker; UpdatesTab `hasDirectUrl` includes TENCENT). No search integration.
 
+### Wear OS Two-Layer Protection
+Wear OS (relógio) variants are blocked in two independent layers to prevent accidental install of wrong builds:
+
+**Layer 1 — Listing filter** (`WearOsDetector.isWearOsListing`):
+Case-insensitive regex `(?i)\bwear[\s_]*os\b|\bwearos\b|\(wear\)|\bandroid[\s_]+wear\b|\bwear[\s_]+watch\b` — matches "Wear OS", "WearOS", "(Wear)", "Android Wear", "Wear Watch".
+Applied at:
+- `ApkMirrorService.searchByName()` — `.appRow` entries (line 59)
+- `ApkMirrorService.parseRssFeed()` — RSS `<item>` titles (line 179)
+- `AppSearchViewModel` — all 6 search sources filter on `appName` and `versionName` before grouping (lines 102-107)
+- `AppDetailViewModel` — history lists (MemeOS, F-Droid, GitHub, APKMirror) filtered per-source (lines 284, 304, 324, 344, 376, 402)
+
+**Layer 2 — Hard install guard** (`DownloadManager.isWearOsApk`):
+After download completes (before install), the APK is checked:
+1. `PackageManager.getPackageArchiveInfo()` → `reqFeatures` → any `FeatureInfo.name == "android.hardware.type.watch"`
+2. Fallback: `WearOsDetector.scanApkForWearFeature()` — byte-level scan of `AndroidManifest.xml` for `android.hardware.type.watch` in UTF-8 and UTF-16LE encodings (Android binary AXML can use either)
+3. For bundles (XAPK/APKM): recursively scans inner `.apk` entries' manifests
+If detected → `DownloadStatus.ERROR` with message `"Este APK é para Wear OS (relógio), não para o telefone"` — install is BLOCKED. Fail-soft: any read error returns `false` (allows install).
+
+22 unit tests in `WearOsDetectorTest`: 14 for listing regex (null/blank, positive cases, negative cases like "swear"/"wear" alone, case-insensitive, version strings), 8 for byte-scan (UTF-8/UTF-16LE marker found/not found, empty, partial marker, start/end of array, needle larger than haystack).
+
 ### Download Hardening Rules
 - `DownloadUpdateUseCase`: throws on non-2xx (`HTTP ${code}`) and on `text/html` content-type ("Got HTML page instead of APK").
 - `DownloadProgress.errorMessage` surfaced in card UI as "Erro: ..." (red labelSmall) for ERROR status.
