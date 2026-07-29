@@ -57,7 +57,12 @@ object NetworkModule {
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
         .writeTimeout(15, TimeUnit.SECONDS)
-        .cache(Cache(File(context.cacheDir, "http_cache"), 20L * 1024 * 1024))
+        .cache(try {
+            Cache(File(context.cacheDir, "http_cache"), 20L * 1024 * 1024)
+        } catch (e: Exception) {
+            android.util.Log.w("NetworkModule", "Cannot create HTTP cache: ${e.message}")
+            null
+        })
         .build()
 
     @Provides

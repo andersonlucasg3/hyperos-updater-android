@@ -364,6 +364,8 @@ class AppUpdateRepositoryImpl @Inject constructor(
                     appType = appType,
                     sourceVersions = sourceVersions
                 )
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Log.e("AppUpdateRepo", "Third-party check failed for ${app.packageName}", e)
                 AppUpdate(

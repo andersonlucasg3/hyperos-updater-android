@@ -141,14 +141,27 @@ class AppUpdatesViewModel @Inject constructor(
             fun bumped() { if (total > 0) _scanProgress.value = ++done to total }
 
             val scanned = mutableSetOf<String>()
-            val systemJob = if (includeSystem) launch {
-                checkSystemAppUpdatesUseCase().collect { update -> upsert(update); scanned.add(update.packageName); bumped() }
-            } else null
-            val thirdPartyJob = launch {
-                checkThirdPartyAppUpdatesUseCase().collect { update -> upsert(update); scanned.add(update.packageName); bumped() }
+            // supervisorScope: one flow failing must not cancel the other flow;
+            // uncaught exceptions from a flow are caught and surfaced as error
+            // instead of propagating to the crash handler.
+            kotlinx.coroutines.supervisorScope {
+                val systemJob = if (includeSystem) launch {
+                    try {
+                        checkSystemAppUpdatesUseCase().collect { update -> upsert(update); scanned.add(update.packageName); bumped() }
+                    } catch (e: Exception) {
+                        _error.value = "System scan failed: ${e.message}"
+                    }
+                } else null
+                val thirdPartyJob = launch {
+                    try {
+                        checkThirdPartyAppUpdatesUseCase().collect { update -> upsert(update); scanned.add(update.packageName); bumped() }
+                    } catch (e: Exception) {
+                        _error.value = "App scan failed: ${e.message}"
+                    }
+                }
+                systemJob?.join()
+                thirdPartyJob.join()
             }
-            systemJob?.join()
-            thirdPartyJob.join()
 
             // Remove stale entries — but only for app types that were in scan scope
             val toRemove = appList.mapIndexedNotNull { i, u ->

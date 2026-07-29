@@ -95,14 +95,19 @@ class ApkMirrorService @Inject constructor(
     }
 
     suspend fun fetchAppFeed(slug: String): List<ApkMirrorRssItem> = withContext(Dispatchers.IO) {
-        val url = "https://www.apkmirror.com/apk/$slug/feed/"
-        val request = Request.Builder()
-            .url(url)
-            .header("User-Agent", NetworkUtils.APKMIRROR_USER_AGENT)
-            .build()
-        val response = okHttpClient.newCall(request).execute()
-        val body = response.body?.string() ?: return@withContext emptyList()
-        parseRssFeed(body)
+        try {
+            val url = "https://www.apkmirror.com/apk/$slug/feed/"
+            val request = Request.Builder()
+                .url(url)
+                .header("User-Agent", NetworkUtils.APKMIRROR_USER_AGENT)
+                .build()
+            val response = okHttpClient.newCall(request).execute()
+            val body = response.body?.string() ?: return@withContext emptyList()
+            parseRssFeed(body)
+        } catch (e: Exception) {
+            Log.w("ApkMirror", "Feed fetch failed for $slug: ${e.message}", e)
+            emptyList()
+        }
     }
 
     /** Returns recent versions for an app from the RSS feed, given the app name. */

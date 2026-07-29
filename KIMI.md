@@ -215,6 +215,7 @@ MEMEOS provides direct signed URLs via `MemeOsService.resolveDirectDownloadUrl()
 The 120 s → 15 s `readTimeout` change does NOT kill slow-but-continuous downloads — `readTimeout` is per-read-gap, not cumulative. Only true stalls (no bytes for 15 s) are killed.
 
 ## Known Issues
+- **Parallel flow collectors must use `supervisorScope` + per-collect `try/catch`** (v1.3.1 fix): Two parallel `launch` collectors in `AppUpdatesViewModel.checkAllApps` originally ran without `supervisorScope` — a flow-level failure (e.g. network error after `readTimeout` 120s→15s) propagated and killed the app. Now wrapped in `supervisorScope` with per-collect `try/catch`, errors are surfaced as UI state instead of crashes. Also fixed: `CancellationException` no longer swallowed in `checkOneThirdPartyApp`, `ApkMirrorService.fetchAppFeed` wrapped in `try/catch`, and `NetworkModule` cache init guarded.
 - OTA code still exists but is unwired from v1 (OTA tab removed, `ota_check` worker cancelled in `WorkerScheduler`)
 - Xiaomi GetApps (`app.market.xiaomi.com/apm/app`) evaluated and NOT added — requires undisclosed params/signing (HTTP 400 "参数不能为空"); would need MITM reverse engineering
 - APKCombo: download page works in WebView but 403s via plain OkHttp — always routed through WebView (see Critical Discoveries); **name-search impossible** — `apkcombo.com/search/<name>` returns Cloudflare 403, package-name only
