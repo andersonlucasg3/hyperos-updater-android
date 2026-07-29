@@ -4,10 +4,14 @@
 
 Downloads are handled by `DownloadManager` (`@Singleton`), not individual ViewModels. This ensures downloads survive screen navigation.
 
+Entry points:
+- **UpdatesTab / SearchTab:** download button on cards.
+- **AppDetailActivity:** download button in "Versões por Fonte" rows and in "Histórico de versões" cards. Same routing rules as tabs.
+
 ```
 User taps ⬇
   ↓
-AppSearchViewModel / AppUpdatesViewModel
+AppSearchViewModel / AppUpdatesViewModel / AppDetailViewModel
   ↓
 DownloadManager.startDownload(url, filename, key, appName)
   ↓

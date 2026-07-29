@@ -2,7 +2,6 @@ package com.hyperos.updater.ui.screens.search
 
 import android.app.Activity
 import android.content.Intent
-import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
@@ -24,7 +23,6 @@ import com.hyperos.updater.ui.components.DownloadStatus
 import com.hyperos.updater.ui.components.SourceBadge
 import com.hyperos.updater.ui.components.isOngoing
 import com.hyperos.updater.util.toHumanReadableSize
-import javax.inject.Inject
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -99,11 +97,10 @@ fun AppSearchScreen(
 
             LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(state.results, key = { it.source.name + it.downloadPageUrl }) { result ->
-                    var expanded by remember { mutableStateOf(false) }
                     val dlKey = result.source.name + result.appName
                     val dl = downloads[dlKey]
 
-                    Card(modifier = Modifier.fillMaxWidth().clickable { expanded = !expanded }) {
+                    Card(modifier = Modifier.fillMaxWidth()) {
                         Column(modifier = Modifier.padding(12.dp)) {
                             if (dl?.progress?.status == DownloadStatus.ERROR && dl.progress.errorMessage != null) {
                                 Text("Erro: ${dl.progress.errorMessage}", style = MaterialTheme.typography.labelSmall,
@@ -114,7 +111,15 @@ fun AppSearchScreen(
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f).clickable {
+                                    val intent = Intent(context, com.hyperos.updater.ui.screens.detail.AppDetailActivity::class.java)
+                                    intent.putExtra(com.hyperos.updater.ui.screens.detail.AppDetailActivity.EXTRA_SEARCH_NAME, result.appName)
+                                    result.versionName?.let { intent.putExtra(com.hyperos.updater.ui.screens.detail.AppDetailActivity.EXTRA_SEARCH_VERSION, it) }
+                                    intent.putExtra(com.hyperos.updater.ui.screens.detail.AppDetailActivity.EXTRA_SEARCH_SOURCE, result.source.name)
+                                    intent.putExtra(com.hyperos.updater.ui.screens.detail.AppDetailActivity.EXTRA_SEARCH_PAGE_URL, result.downloadPageUrl)
+                                    result.iconUrl?.let { intent.putExtra(com.hyperos.updater.ui.screens.detail.AppDetailActivity.EXTRA_SEARCH_ICON_URL, it) }
+                                    context.startActivity(intent)
+                                }) {
                                     com.hyperos.updater.ui.components.UrlAppIcon(result.iconUrl)
                                     Spacer(modifier = Modifier.width(12.dp))
                                     Column {
@@ -207,10 +212,15 @@ fun AppSearchScreen(
                                             Icon(Icons.Default.Download, contentDescription = "Download")
                                         }
                                         IconButton(onClick = {
-                                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(result.downloadPageUrl))
+                                            val intent = Intent(context, com.hyperos.updater.ui.screens.detail.AppDetailActivity::class.java)
+                                            intent.putExtra(com.hyperos.updater.ui.screens.detail.AppDetailActivity.EXTRA_SEARCH_NAME, result.appName)
+                                            result.versionName?.let { intent.putExtra(com.hyperos.updater.ui.screens.detail.AppDetailActivity.EXTRA_SEARCH_VERSION, it) }
+                                            intent.putExtra(com.hyperos.updater.ui.screens.detail.AppDetailActivity.EXTRA_SEARCH_SOURCE, result.source.name)
+                                            intent.putExtra(com.hyperos.updater.ui.screens.detail.AppDetailActivity.EXTRA_SEARCH_PAGE_URL, result.downloadPageUrl)
+                                            result.iconUrl?.let { intent.putExtra(com.hyperos.updater.ui.screens.detail.AppDetailActivity.EXTRA_SEARCH_ICON_URL, it) }
                                             context.startActivity(intent)
                                         }) {
-                                            Icon(Icons.Default.OpenInBrowser, contentDescription = "Source")
+                                            Icon(Icons.Default.Info, contentDescription = "Detalhes", modifier = Modifier.size(20.dp))
                                         }
                                     }
                                 }
@@ -229,14 +239,6 @@ fun AppSearchScreen(
                                     Text("${dl.progress.bytesDownloaded.toHumanReadableSize()}", style = MaterialTheme.typography.labelSmall)
                                     Text("${dl.progress.speedBytesPerSec.toHumanReadableSize()}/s", style = MaterialTheme.typography.labelSmall)
                                 }
-                            }
-
-                            if (expanded) {
-                                Spacer(modifier = Modifier.height(8.dp)); HorizontalDivider(); Spacer(modifier = Modifier.height(8.dp))
-                                Text("App: ${result.appName}", style = MaterialTheme.typography.bodySmall)
-                                if (result.versionName != null) Text("Version: ${result.versionName}", style = MaterialTheme.typography.bodySmall)
-                                if (!result.devName.isNullOrBlank()) Text("Developer: ${result.devName}", style = MaterialTheme.typography.bodySmall)
-                                Text("Source: ${result.source.name}", style = MaterialTheme.typography.bodySmall)
                             }
                         }
                     }

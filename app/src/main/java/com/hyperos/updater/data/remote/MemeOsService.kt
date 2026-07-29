@@ -15,6 +15,16 @@ data class MemeOsResult(
     val downloadUrl: String
 )
 
+/** A single version-history entry parsed from the app detail page. */
+data class MemeOsVersion(
+    val version: String,
+    val versionCode: Long,
+    val region: String,
+    val date: String,
+    val sizeBytes: Long?,
+    val pageUrl: String
+)
+
 data class MemeOsAppDetails(
     val packageName: String,
     val appName: String,
@@ -253,6 +263,35 @@ class MemeOsService @Inject constructor(
         } catch (e: Exception) {
             Log.d("MemeOs", "resolveDirectDownloadUrl error: ${e.message}")
             null
+        }
+    }
+
+    /** Returns all version history entries for an app from its detail page. */
+    suspend fun getAppHistory(packageName: String): List<MemeOsVersion> = withContext(Dispatchers.IO) {
+        try {
+            val pageUrl = "https://memeosupdates.com/apps/$packageName"
+            val request = Request.Builder().url(pageUrl)
+                .header("User-Agent", NetworkUtils.USER_AGENT).build()
+            val response = okHttpClient.newCall(request).execute()
+            if (!response.isSuccessful) return@withContext emptyList()
+            val html = response.body?.string() ?: return@withContext emptyList()
+
+            val itemRegex = Regex(
+                """<div class="version-item" data-region="(\w+)">.*?version-number">([^<]+)<.*?version-date">([^<]+)<.*?version-size">([^<]+)<.*?href="/apps/[^"]+/(\d+)"""",
+                RegexOption.DOT_MATCHES_ALL
+            )
+            itemRegex.findAll(html).map { match ->
+                val version = match.groupValues[2].trim()
+                val code = match.groupValues[5].toLong()
+                val region = match.groupValues[1]
+                val sizeBytes = parseSizeToBytes(match.groupValues[4])
+                val date = match.groupValues[3].trim()
+                val vPageUrl = "https://memeosupdates.com/apps/$packageName/$code"
+                MemeOsVersion(version, code, region, date, sizeBytes, vPageUrl)
+            }.toList()
+        } catch (e: Exception) {
+            Log.d("MemeOs", "getAppHistory error for $packageName: ${e.message}")
+            emptyList()
         }
     }
 

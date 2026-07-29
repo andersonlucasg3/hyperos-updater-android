@@ -31,7 +31,7 @@ com.hyperos.updater
 │   ├── DownloadActivity.kt    WebView-based CDN URL capture
 │   ├── navigation/            Screen routes + NavHost
 │   ├── theme/                 Material3 theme, colors, typography
-│   ├── screens/               Find&Install (search), Updates (apps), Settings
+│   ├── screens/               Find&Install (search), Updates (apps), Detail (AppDetailActivity), Settings
 │   └── components/            AppListItem, AppIcon (PackageAppIcon + UrlAppIcon), SourceBadge, DownloadProgressSheet
 │
 ├── worker/                    WorkManager workers + NotificationHelper

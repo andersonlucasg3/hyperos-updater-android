@@ -22,6 +22,12 @@ data class ApkMirrorSearchItem(
     val iconUrl: String?
 )
 
+/** A single version entry from the APKMirror RSS feed. */
+data class ApkMirrorVersion(
+    val version: String,
+    val pageUrl: String
+)
+
 @Singleton
 class ApkMirrorService @Inject constructor(
     private val okHttpClient: OkHttpClient
@@ -93,6 +99,24 @@ class ApkMirrorService @Inject constructor(
         val response = okHttpClient.newCall(request).execute()
         val body = response.body?.string() ?: return@withContext emptyList()
         parseRssFeed(body)
+    }
+
+    /** Returns recent versions for an app from the RSS feed, given the app name. */
+    suspend fun getRecentVersions(appName: String): List<ApkMirrorVersion> = withContext(Dispatchers.IO) {
+        try {
+            // Search to find the slug
+            val searchResults = searchByName(appName)
+            val best = searchResults.firstOrNull() ?: return@withContext emptyList()
+            val slug = Regex("/apk/([^/]+/[^/]+)/").find(best.pageUrl)?.groupValues?.get(1)
+                ?: return@withContext emptyList()
+            val feedItems = fetchAppFeed(slug)
+            feedItems.mapNotNull { item ->
+                item.version?.let { v -> ApkMirrorVersion(v, item.link) }
+            }
+        } catch (e: Exception) {
+            Log.d("ApkMirror", "getRecentVersions error for $appName: ${e.message}")
+            emptyList()
+        }
     }
 
     suspend fun scrapeDownloadUrl(releasePageUrl: String): String? = withContext(Dispatchers.IO) {

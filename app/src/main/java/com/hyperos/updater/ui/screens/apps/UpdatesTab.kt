@@ -154,15 +154,19 @@ fun UpdatesTab(
                 items(displayList, key = { it.packageName + it.appType.name }) { update ->
                     val dlKey = update.updateSource.name + update.appName
                     val dl = downloadState[dlKey]
-                    var expanded by remember { mutableStateOf(false) }
                     val hasUpdate = update.currentVersion != update.latestVersion
                     val recheckKey = update.packageName + update.appType.name
                     val isRechecking = recheckKey in checkingApps
 
-                    Card(modifier = Modifier.fillMaxWidth().clickable { expanded = !expanded }) {
+                    Card(modifier = Modifier.fillMaxWidth()) {
                         Column(modifier = Modifier.padding(12.dp)) {
                             Row(horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f).clickable {
+                                    val intent = Intent(context, com.hyperos.updater.ui.screens.detail.AppDetailActivity::class.java)
+                                    intent.putExtra(com.hyperos.updater.ui.screens.detail.AppDetailActivity.EXTRA_PACKAGE_NAME, update.packageName)
+                                    intent.putExtra(com.hyperos.updater.ui.screens.detail.AppDetailActivity.EXTRA_APP_TYPE, update.appType.name)
+                                    context.startActivity(intent)
+                                }) {
                                     com.hyperos.updater.ui.components.PackageAppIcon(update.packageName)
                                     Spacer(modifier = Modifier.width(12.dp))
                                     Column {
@@ -232,8 +236,14 @@ fun UpdatesTab(
                                             downloadLauncher.launch(intent)
                                         }) {
                                             Icon(Icons.Default.Download, contentDescription = "Install") }
-                                        if (update.downloadUrl != null) IconButton(onClick = { viewModel.openSourcePage(update) }) {
-                                            Icon(Icons.Default.OpenInBrowser, contentDescription = "Source", modifier = Modifier.size(20.dp)) }
+                                        IconButton(onClick = {
+                                            val intent = Intent(context, com.hyperos.updater.ui.screens.detail.AppDetailActivity::class.java)
+                                            intent.putExtra(com.hyperos.updater.ui.screens.detail.AppDetailActivity.EXTRA_PACKAGE_NAME, update.packageName)
+                                            intent.putExtra(com.hyperos.updater.ui.screens.detail.AppDetailActivity.EXTRA_APP_TYPE, update.appType.name)
+                                            context.startActivity(intent)
+                                        }) {
+                                            Icon(Icons.Default.Info, contentDescription = "Detalhes", modifier = Modifier.size(20.dp))
+                                        }
                                         if (isRechecking) {
                                             CircularProgressIndicator(modifier = Modifier.size(16.dp))
                                         } else {
@@ -265,84 +275,6 @@ fun UpdatesTab(
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text("Erro: ${dl.progress.errorMessage}", style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.error)
-                            }
-                            if (expanded) {
-                                Spacer(modifier = Modifier.height(8.dp)); HorizontalDivider(); Spacer(modifier = Modifier.height(8.dp))
-                                Text("Package: ${update.packageName}", style = MaterialTheme.typography.bodySmall)
-                                Text("Installed: ${update.currentVersion}", style = MaterialTheme.typography.bodySmall)
-                                update.sourceVersions.forEach { sv ->
-                                    val svKey = sv.source.name + update.appName
-                                    val svDl = downloadState[svKey]
-                                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
-                                        SourceBadge(sv.source)
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Text(sv.version, style = MaterialTheme.typography.bodySmall,
-                                            color = if (sv.version != update.currentVersion) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                            modifier = Modifier.weight(1f))
-                                        if (sv.downloadUrl != null && sv.version != update.currentVersion) {
-                                            if (svDl != null && svDl.progress.status.isOngoing()) {
-                                                Text("${svDl.progress.progress}%", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-                                            } else if (svDl?.progress?.status == DownloadStatus.COMPLETED) {
-                                                Icon(Icons.Default.CheckCircle, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
-                                            } else {
-                                                IconButton(onClick = {
-                                                    scope.launch {
-                                                        val url = viewModel.getSourcePageUrl(update.packageName, sv.source, sv.downloadUrl)
-                                                        // MEMEOS: try direct resolution first, fall back to WebView
-                                                        if (sv.source == UpdateSource.MEMEOS) {
-                                                            val versionPage = sv.downloadUrl ?: url
-                                                            val directUrl = viewModel.resolveMemeOsDirectDownload(versionPage)
-                                                            if (directUrl != null) {
-                                                                val filename = com.hyperos.updater.ui.screens.apps.AppUpdatesViewModel.buildApkFileName(directUrl, update.appName, sv.version)
-                                                                viewModel.downloadManager.startDownload(directUrl, filename, svKey, update.appName)
-                                                                return@launch
-                                                            }
-                                                            // Fall back to WebView
-                                                            pendingDlKey = svKey
-                                                            pendingDlAppName = update.appName
-                                                            pendingDlVersion = sv.version
-                                                            val intent = Intent(context, com.hyperos.updater.ui.DownloadActivity::class.java)
-                                                            intent.putExtra(com.hyperos.updater.ui.DownloadActivity.EXTRA_URL, url)
-                                                            intent.putExtra(com.hyperos.updater.ui.DownloadActivity.EXTRA_APP_NAME, update.appName)
-                                                            downloadLauncher.launch(intent)
-                                                            return@launch
-                                                        }
-                                                        val needsWebView = sv.source == UpdateSource.APKMIRROR || sv.source == UpdateSource.APKCOMBO || sv.source == UpdateSource.APKPURE || sv.source == UpdateSource.UPTODOWN
-                                                        if (needsWebView) {
-                                                            pendingDlKey = svKey
-                                                            pendingDlAppName = update.appName
-                                                            pendingDlVersion = sv.version
-                                                            val intent = Intent(context, com.hyperos.updater.ui.DownloadActivity::class.java)
-                                                            intent.putExtra(com.hyperos.updater.ui.DownloadActivity.EXTRA_URL, url)
-                                                            intent.putExtra(com.hyperos.updater.ui.DownloadActivity.EXTRA_APP_NAME, update.appName)
-                                                            downloadLauncher.launch(intent)
-                                                        } else {
-                                                            val filename = com.hyperos.updater.ui.screens.apps.AppUpdatesViewModel.buildApkFileName(url, update.appName, sv.version)
-                                                            viewModel.downloadManager.startDownload(url, filename, svKey, update.appName)
-                                                        }
-                                                    }
-                                                }, modifier = Modifier.size(32.dp)) {
-                                                    Icon(Icons.Default.Download, contentDescription = "Download from ${sv.source.name}", modifier = Modifier.size(18.dp))
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    TextButton(onClick = { viewModel.hideApp(update.packageName) },
-                                        colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) {
-                                        Icon(Icons.Default.VisibilityOff, contentDescription = null, modifier = Modifier.size(14.dp))
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text("Hide this app", style = MaterialTheme.typography.labelSmall)
-                                    }
-                                    TextButton(onClick = { viewModel.skipVersion(update.packageName, update.latestVersion) },
-                                        colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.outline)) {
-                                        Icon(Icons.Default.Block, contentDescription = null, modifier = Modifier.size(14.dp))
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text("Skip this version", style = MaterialTheme.typography.labelSmall)
-                                    }
-                                }
                             }
                         }
                     }

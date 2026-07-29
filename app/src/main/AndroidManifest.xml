@@ -46,6 +46,12 @@
             android:theme="@style/Theme.HyperOSUpdater" />
 
         <activity
+            android:name=".ui.screens.detail.AppDetailActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.HyperOSUpdater" />
+
+        <activity
             android:name=".ui.MainActivity"
             android:exported="true"
             android:screenOrientation="portrait"

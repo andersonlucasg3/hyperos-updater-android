@@ -22,6 +22,8 @@ Android app for Xiaomi devices running HyperOS that manages app and system updat
 - **Filtros** — chip "Updatable" filtra apenas apps com atualização disponível (persistido em `updatable_filter_enabled`); chip "Sistema" controla exibição de apps de sistema (persistido em `show_system_apps`) e também ESCOPA o scan (desligado = apenas third-party)
 - **Scan UX** — progresso determinado "x de y" durante o scan; auto-scan roda apenas uma vez por abertura do app (`checkAllAppsIfNeeded`); troca de abas não reescaneia; botão manual de refresh inalterado
 - **Estado INSTALLING** — barra indeterminada + "Instalando..." nos cards (sem barra 0% que desaparecia); botão cancelar substituído por spinner durante a instalação
+- **App Detail Page** — página dedicada acessada pelo botão info (ⓘ) nos cards; cabeçalho (ícone, nome, package, versão/código instalados, instalador, badge sistema); status da versão com recheck automático; "Versões por Fonte" com download inline (mesmas regras de roteamento das abas: MEMEOS resolve-direct/WebView fallback, APTOIDE/GITHUB/FDROID/TENCENT direto, APKMIRROR/APKCOMBO/APKPURE/UPTODOWN WebView); "Histórico de versões" colapsável por fonte (MemeOS/F-Droid/GitHub/APKMirror com endpoints dedicados de histórico; demais fontes mostram latest + link "abrir página"); ações (Pular versão, Ocultar app, Verificar novamente); badge "instalada" na versão corrente
+- **Busca → Detail** — resultados de busca abrem a detail page com extras SEARCH_*; mostra info do resultado + botão de download; compara com versão instalada se disponível
 - **Material 3 UI** — dynamic color, dark mode, 3 abas (Find & Install, Updates, Settings)
 
 ## Architecture

@@ -16,6 +16,14 @@ data class GitHubResult(
     val downloadUrl: String?
 )
 
+/** A single GitHub release entry with optional APK URL. */
+data class GitHubRelease(
+    val tag: String,
+    val name: String,
+    val publishedAt: String?,
+    val apkUrl: String?
+)
+
 @Singleton
 class GitHubService @Inject constructor(
     private val okHttpClient: OkHttpClient
@@ -99,6 +107,49 @@ class GitHubService @Inject constructor(
             } else null
         } catch (e: Exception) {
             null
+        }
+    }
+
+    /** Returns all releases for a package from the GitHub releases list endpoint. */
+    suspend fun getReleaseHistory(packageName: String): List<GitHubRelease> = withContext(Dispatchers.IO) {
+        val repo = repoMap[packageName] ?: return@withContext emptyList()
+        try {
+            val url = "https://api.github.com/repos/$repo/releases?per_page=20"
+            val request = Request.Builder().url(url)
+                .header("Accept", "application/vnd.github.v3+json")
+                .build()
+            val response = okHttpClient.newCall(request).execute()
+            if (!response.isSuccessful) return@withContext emptyList()
+            val body = response.body?.string() ?: return@withContext emptyList()
+            val arr = org.json.JSONArray(body)
+
+            val result = mutableListOf<GitHubRelease>()
+            for (i in 0 until arr.length()) {
+                val json = arr.getJSONObject(i)
+                val tag = json.optString("tag_name", "").removePrefix("v").removePrefix("V")
+                val name = json.optString("name", "").ifBlank { tag }
+                val publishedAt = json.optString("published_at", "").ifEmpty { null }
+                val assets = json.optJSONArray("assets")
+                var apkUrl: String? = null
+                if (assets != null) {
+                    for (j in 0 until assets.length()) {
+                        val asset = assets.getJSONObject(j)
+                        val assetName = asset.optString("name", "")
+                        if (assetName.endsWith(".apk")) {
+                            apkUrl = asset.optString("browser_download_url", "")
+                            break
+                        }
+                    }
+                }
+                if (tag.isNotBlank()) {
+                    result.add(GitHubRelease(tag, name.ifBlank { tag }, publishedAt, apkUrl))
+                }
+            }
+            Log.d("GitHub", "getReleaseHistory for $packageName: ${result.size} releases")
+            result
+        } catch (e: Exception) {
+            Log.d("GitHub", "getReleaseHistory error for $packageName: ${e.message}")
+            emptyList()
         }
     }
 }

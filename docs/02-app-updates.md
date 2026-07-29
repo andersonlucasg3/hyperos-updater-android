@@ -146,6 +146,20 @@ Diferente da barra indeterminada genérica, o scan mostra progresso determinado 
 
 **Auto-scan único:** `checkAllAppsIfNeeded()` usa um guard `autoCheckDone` — retorna sem fazer nada se já rodou. Isso garante que o scan dispare apenas na primeira abertura do app (via `LaunchedEffect(Unit)` na UpdatesTab). Trocas de abas não reescaneiam. O botão manual de refresh (`IconButton(Refresh)`) chama `checkAllApps()` diretamente, ignorando o guard.
 
+## Endpoints de Histórico de Versões (App Detail Page)
+
+A página de detalhes (`AppDetailActivity`) carrega histórico completo de versões de fontes que oferecem endpoints dedicados:
+
+| Fonte | Método | Endpoint | Retorno |
+|-------|--------|----------|---------|
+| **MemeOS** | `getAppHistory(pkg)` | `memeosupdates.com/apps/{pkg}` — scrape HTML dos `div.version-item` | Todas as versões: version, versionCode, region, date, sizeBytes, pageUrl. Cada entrada é baixável via `resolveDirectDownloadUrl` na página da versão. |
+| **F-Droid** | `getVersionHistory(pkg)` | `f-droid.org/api/v1/packages/{pkg}` → array JSON `packages[]` | Todas as versões: versionName, versionCode, apkUrl (URL direta). |
+| **GitHub** | `getReleaseHistory(pkg)` | `api.github.com/repos/{repo}/releases?per_page=20` | Todas as releases: tag, name, publishedAt, apkUrl (primeiro asset `.apk`). |
+| **APKMirror** | `getRecentVersions(appName)` | RSS feed via `searchByName` → slug → `fetchAppFeed` | Versões recentes: version, pageUrl (download via WebView). |
+| **APKPure/APKCombo/Aptoide/Uptodown/Tencent** | — | — | Apenas latest + link "abrir página de versões". |
+
+O carregamento é fail-soft por fonte — falha em uma fonte não bloqueia as demais. O histórico só é carregado para fontes presentes em `sourceVersions`. No modo search-origin, apenas APKMirror (RSS via slug extraído da page URL) e MemeOS (package-name extraído da page URL) tentam carregar histórico.
+
 ## Arquivos Relevantes
 
 - [data/remote/ApkMirrorService.kt](../app/src/main/java/com/hyperos/updater/data/remote/ApkMirrorService.kt) — RSS + scraping
@@ -159,3 +173,6 @@ Diferente da barra indeterminada genérica, o scan mostra progresso determinado 
 - [data/repository/AppUpdateRepositoryImpl.kt](../app/src/main/java/com/hyperos/updater/data/repository/AppUpdateRepositoryImpl.kt) — Lógica de verificação (8 fontes, pickBest, checkOneSystemApp, checkOneThirdPartyApp, recheckApp)
 - [util/VersionComparator.kt](../app/src/main/java/com/hyperos/updater/util/VersionComparator.kt) — Comparação de versões (isNewer + compare)
 - [ui/screens/apps/AppUpdatesViewModel.kt](../app/src/main/java/com/hyperos/updater/ui/screens/apps/AppUpdatesViewModel.kt) — ViewModel (checkAllApps, recheckApp, checkingApps)
+- [ui/screens/detail/AppDetailActivity.kt](../app/src/main/java/com/hyperos/updater/ui/screens/detail/AppDetailActivity.kt) — Activity standalone (modos: installed-app e search-origin)
+- [ui/screens/detail/AppDetailViewModel.kt](../app/src/main/java/com/hyperos/updater/ui/screens/detail/AppDetailViewModel.kt) — ViewModel (loadInstalled, loadSearchOrigin, recheck, downloadFromSource, skipVersion, hideApp, history loading)
+- [ui/screens/detail/AppDetailScreen.kt](../app/src/main/java/com/hyperos/updater/ui/screens/detail/AppDetailScreen.kt) — Tela de detalhes (header, status, sourceVersions, history groups, ações)

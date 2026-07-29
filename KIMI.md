@@ -29,6 +29,7 @@ Clean Architecture with package-separated layers in a single `:app` module.
 - **data/** — Room entities/DAOs, Retrofit APIs, Jsoup scrapers (8 sources), repository implementations
 - **domain/** — Pure Kotlin: models, repository interfaces, use cases, installer abstraction (Root/PackageManager)
 - **ui/** — Jetpack Compose: 3 tabs (Find & Install, Updates, Settings), ViewModels, navigation, components
+  - **ui/screens/detail/** — AppDetailActivity (standalone, registered in manifest) + AppDetailViewModel + AppDetailScreen; opened via info button (ⓘ) on Updates/Search cards. Modes: installed-app (packageName + appType) and search-origin (SEARCH_* extras). Sections: header, "Status da Versão" (auto-recheck), "Versões por Fonte" (download per source row), "Histórico de versões" (collapsible per-source groups, history endpoints for MemeOS/F-Droid/GitHub/APKMirror), "Ações" (Pular/Ocultar/Verificar). Download routing mirrors tabs: MEMEOS resolve-direct/WebView fallback, APTOIDE/GITHUB/FDROID/TENCENT direct, APKMIRROR/APKCOMBO/APKPURE/UPTODOWN WebView.
 - **di/** — Hilt modules (App, Network, Database, Installer, Repository)
 - **worker/** — WorkManager workers (AppCheckWorker only in v1) + NotificationHelper
 - **util/** — VersionComparator (with versionName-first `compare`), XiaomiApps, Extensions
@@ -104,6 +105,20 @@ When "Sistema" is off, the scan only launches the third-party job (system job is
 
 ### Self-Update via GitHub Releases
 `SelfUpdateService` checks `api.github.com/repos/andersonlucasg3/hyperos-updater-android/releases/latest` (public repo). Settings has a "Atualização do app" section with a manual "Verificar atualização" button — there is no periodic worker for self-update. States: `Idle`, `Checking`, `UpToDate`, `Available` (release with `.apk` asset), `Error`, `NoRelease`. When `Available`, download uses `DownloadManager.startDownload()` with the fixed key `"SELFUPDATE"` — the root install chain handles it (the APK is HyperOS-Updater itself, installed via `pm install -r`). Tags are expected like `v1.0.1`; the leading `v`/`V` is stripped by `SelfUpdateService`. Each release must have at least one `.apk` asset.
+
+### App Detail — History Per Source (Availability Matrix)
+
+The detail page loads version history from dedicated endpoints, collapsed per source:
+
+| Source | History method | Endpoint | Returns |
+|--------|---------------|----------|---------|
+| **MemeOS** | `MemeOsService.getAppHistory(pkg)` | `memeosupdates.com/apps/{pkg}` — HTML scrape of `version-item` divs | All versions: version, versionCode, region, date, sizeBytes, pageUrl. Each downloadable via `resolveDirectDownloadUrl` on the version page. |
+| **F-Droid** | `FDroidService.getVersionHistory(pkg)` | `f-droid.org/api/v1/packages/{pkg}` → `packages[]` JSON array | All versions: versionName, versionCode, apkUrl (direct). |
+| **GitHub** | `GitHubService.getReleaseHistory(pkg)` | `api.github.com/repos/{repo}/releases?per_page=20` | All releases: tag, name, publishedAt, apkUrl (first `.apk` asset). |
+| **APKMirror** | `ApkMirrorService.getRecentVersions(appName)` | RSS feed via `searchByName` → slug → `fetchAppFeed` | Recent versions: version, pageUrl (WebView download). |
+| **APKPure/APKCombo/Aptoide/Uptodown/Tencent** | — | — | Latest only + "abrir página de versões" link. |
+
+History loading is fail-soft per source — one failure does not block others. Load is triggered only for sources that appear in `sourceVersions`. In search-origin mode: only APKMirror (RSS slug from page URL) and MemeOS (package-name from page URL) attempt history.
 
 ### Root Install waitFor-Before-Join
 `su` stdin-pipe installs use `process.waitFor(120, SECONDS)` **before** joining reader threads. The old code joined stdout/stderr reader threads first, which block until EOF (process exit). If the process hangs (e.g. behind a Magisk grant prompt), the join hangs forever and the timeout is never reached. The fix: `waitFor(timeout)` → `destroyForcibly()` on timeout → then `join(5s)` reader threads. Same pattern in both `DownloadManager.rootInstallSingle()` and `RootApkInstaller`.
