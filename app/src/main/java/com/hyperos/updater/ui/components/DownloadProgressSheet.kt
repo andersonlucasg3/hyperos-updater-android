@@ -19,7 +19,8 @@ data class DownloadProgress(
     val bytesDownloaded: Long = 0,
     val totalBytes: Long = 0,
     val speedBytesPerSec: Long = 0,
-    val status: DownloadStatus = DownloadStatus.PREPARING
+    val status: DownloadStatus = DownloadStatus.PREPARING,
+    val errorMessage: String? = null
 )
 
 enum class DownloadStatus {

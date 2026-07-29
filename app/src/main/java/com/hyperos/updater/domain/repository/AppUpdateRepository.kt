@@ -8,4 +8,5 @@ interface AppUpdateRepository {
     suspend fun getInstalledApps(appType: com.hyperos.updater.domain.model.AppType): List<AppInfo>
     fun checkSystemAppUpdates(): Flow<AppUpdate>
     fun checkThirdPartyAppUpdates(): Flow<AppUpdate>
+    suspend fun recheckApp(packageName: String, appType: com.hyperos.updater.domain.model.AppType): AppUpdate
 }

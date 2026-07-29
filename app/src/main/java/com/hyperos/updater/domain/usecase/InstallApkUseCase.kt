@@ -7,12 +7,12 @@ import javax.inject.Inject
 import javax.inject.Named
 
 class InstallApkUseCase @Inject constructor(
-    @Named("shizuku") private val shizukuInstaller: ApkInstaller,
+    @Named("root") private val rootInstaller: ApkInstaller,
     @Named("fallback") private val fallbackInstaller: ApkInstaller
 ) {
     suspend operator fun invoke(apkFile: File, packageName: String, isSystemApp: Boolean): InstallResult {
-        val result = shizukuInstaller.install(apkFile, packageName, isSystemApp)
-        return if (result is InstallResult.ShizukuNotAvailable) {
+        val result = rootInstaller.install(apkFile, packageName, isSystemApp)
+        return if (result is InstallResult.RootNotAvailable) {
             fallbackInstaller.install(apkFile, packageName, isSystemApp)
         } else {
             result

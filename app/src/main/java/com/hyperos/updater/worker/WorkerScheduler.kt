@@ -10,17 +10,8 @@ import java.util.concurrent.TimeUnit
 
 object WorkerScheduler {
     fun scheduleAll(context: Context) {
-        val otaRequest = PeriodicWorkRequestBuilder<OtaCheckWorker>(12, TimeUnit.HOURS)
-            .setConstraints(
-                Constraints.Builder()
-                    .setRequiredNetworkType(NetworkType.CONNECTED)
-                    .setRequiresBatteryNotLow(true)
-                    .build()
-            )
-            .build()
-
-        WorkManager.getInstance(context)
-            .enqueueUniquePeriodicWork("ota_check", ExistingPeriodicWorkPolicy.KEEP, otaRequest)
+        // Cancel OTA check work from older builds (OTA tab removed in v1)
+        WorkManager.getInstance(context).cancelUniqueWork("ota_check")
 
         val appRequest = PeriodicWorkRequestBuilder<AppCheckWorker>(24, TimeUnit.HOURS)
             .setConstraints(

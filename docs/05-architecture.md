@@ -9,7 +9,7 @@ com.hyperos.updater
 │   ├── AppModule.kt                 Context, PackageManager, NotificationManager
 │   ├── NetworkModule.kt             OkHttpClient, Moshi, Retrofit, API services
 │   ├── DatabaseModule.kt            Room DB, DAOs
-│   ├── InstallerModule.kt           ApkInstaller bindings (Shizuku + fallback)
+│   ├── InstallerModule.kt           ApkInstaller bindings (Root + fallback)
 │   └── RepositoryModule.kt          Interface → Implementation bindings
 │
 ├── data/                            DATA LAYER
@@ -18,9 +18,16 @@ com.hyperos.updater
 │   │   ├── entity/                  OtaUpdateEntity, TrackedAppEntity, UpdateHistoryEntity
 │   │   └── dao/                     OtaUpdateDao, TrackedAppDao
 │   ├── remote/                      Network
-│   │   ├── OtaApi.kt                Retrofit interface (Xiaomi OTA)
+│   │   ├── OtaApi.kt                Retrofit interface (Xiaomi OTA — desligada no v1)
 │   │   ├── ApkMirrorService.kt      OkHttp + XmlPullParser + Jsoup
 │   │   ├── ApkPureService.kt        OkHttp + Jsoup
+│   │   ├── AptoideService.kt        Aptoide API v7
+│   │   ├── UptodownService.kt       Jsoup scraping
+│   │   ├── FDroidService.kt         F-Droid REST API
+│   │   ├── GitHubService.kt         GitHub releases API
+│   │   ├── MemeOsService.kt         MemeOs Updates (catálogo + direct download)
+│   │   ├── TencentService.kt        Tencent MyApp (应用宝)
+│   │   ├── SelfUpdateService.kt     GitHub Releases check (self-update do app)
 │   │   └── dto/                     OtaResponse, ApkMirrorRssItem
 │   └── repository/                  Implementations
 │       ├── OtaRepositoryImpl.kt
@@ -42,7 +49,7 @@ com.hyperos.updater
 │   │   └── GetDeviceInfoUseCase.kt
 │   └── installer/                   Installation abstraction
 │       ├── ApkInstaller.kt (interface)
-│       ├── ShizukuApkInstaller.kt
+│       ├── RootApkInstaller.kt (su stdin pipe)
 │       └── PackageManagerInstaller.kt
 │
 ├── ui/                              UI LAYER (Jetpack Compose)
@@ -50,20 +57,20 @@ com.hyperos.updater
 │   ├── navigation/                  Screen routes + NavHost
 │   ├── theme/                       Material3 theme, colors, typography
 │   ├── screens/                     
-│   │   ├── home/                    Dashboard
-│   │   ├── ota/                     OTA ROM update
-│   │   ├── apps/                    App list (system + third-party)
-│   │   ├── detail/                  App detail
+│   │   ├── search/                 Find & Install (busca)
+│   │   ├── apps/                   Updates (apps instalados)
+│   │   ├── detail/                 App detail
 │   │   └── settings/               Preferences
 │   └── components/                  Reusable composables
 │       ├── AppListItem.kt
-│       └── ShizukuStatusBanner.kt
+│       ├── AppIcon.kt                PackageAppIcon (PackageManager) + UrlAppIcon (Coil)
+│       ├── DownloadsBadge.kt
+│       └── DownloadProgressSheet.kt
 │
-├── worker/                          Background work
-│   ├── OtaCheckWorker.kt
-│   ├── AppCheckWorker.kt
-│   ├── WorkerScheduler.kt
-│   └── NotificationHelper.kt
+├── worker/                          Background work (v1)
+│   ├── AppCheckWorker.kt            Auto-update + notificação
+│   ├── WorkerScheduler.kt           Agenda app_check, cancela ota_check
+│   └── NotificationHelper.kt        Notificações (incl. showAutoUpdateResults)
 │
 └── util/                            Utilities
     ├── VersionComparator.kt
@@ -105,8 +112,12 @@ Isso mantém a lógica de negócio testável e reutilizável.
 ### Decisões Críticas
 
 1. **Sem cache de URLs de download** — tokens expiram em ~4 dias
-2. **Shizuku com reflection** — API 13 tornou `newProcess` privado
+2. **Root como único instalador privilegiado** — su stdin pipe com `-i com.android.vending` (simula Play Store)
 3. **Moshi com KSP** — mais rápido que reflexão runtime
 4. **XmlPullParser para RSS** — nativo do Android, sem dependência extra
 5. **Jsoup para scraping** — robusto contra HTML malformado
 6. **Device codename via getprop** — mais confiável que Build.DEVICE em alguns dispositivos
+7. **8 fontes em paralelo** — `supervisorScope` + `async` com `Semaphore(6)`, `pickBest` versionName-first
+8. **WebView assistido** — captura passiva de URL + replay de headers (Referer, User-Agent, Cookie)
+9. **MemeOS direct download** — bypass do countdown de 20s via 2 HTTP GETs (`resolveDirectDownloadUrl`), resolve URL assinada sem WebView
+10. **Auto-update apenas Root** — nunca Intent fallback em background; apenas fontes com URL direta

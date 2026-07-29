@@ -26,16 +26,28 @@ class DownloadUpdateUseCase @Inject constructor(
     @ApplicationContext private val context: Context,
     private val okHttpClient: OkHttpClient
 ) {
-    suspend fun download(url: String, fileName: String, expectedMd5: String? = null, downloadDir: File? = null): Flow<DownloadProgress> = callbackFlow {
+    suspend fun download(url: String, fileName: String, expectedMd5: String? = null, downloadDir: File? = null, headers: Map<String, String> = emptyMap()): Flow<DownloadProgress> = callbackFlow {
         val dir = downloadDir ?: File(context.filesDir, "downloads")
         if (!dir.exists()) dir.mkdirs()
 
         val file = File(dir, fileName)
         if (file.exists()) file.delete()
 
-        val request = Request.Builder().url(url).build()
+        val request = Request.Builder().url(url).apply {
+            headers.forEach { (k, v) -> addHeader(k, v) }
+        }.build()
         val response = withContext(Dispatchers.IO) { okHttpClient.newCall(request).execute() }
+        if (!response.isSuccessful) {
+            response.close()
+            throw IllegalStateException("HTTP ${response.code} from ${url.substringBefore('?').take(80)}")
+        }
         val body = response.body ?: throw IllegalStateException("Empty response body")
+        // Guard: an HTML error/challenge page must never be saved as an APK
+        val contentType = body.contentType()?.toString()?.lowercase() ?: ""
+        if (contentType.contains("text/html")) {
+            response.close()
+            throw IllegalStateException("Got HTML page instead of APK (store blocked the direct download)")
+        }
         val totalBytes = body.contentLength()
 
         var downloadedBytes = 0L

@@ -1,9 +1,13 @@
 # Shizuku Setup
 
-## Why Shizuku?
+> ⚠️ **REMOVED (v1):** Shizuku foi completamente removido do app. O suporte a Shizuku (instalador, UI de status, dependências, permissões no manifest, DataStore pref `shizuku_enabled`) foi deletado. O único método de instalação privilegiada agora é Root (`su`). O fallback não-privilegiado é PackageInstaller.Session → Intent ACTION_VIEW. Este documento é mantido apenas para referência histórica.
+
+## Why Shizuku? (HISTÓRICO)
+
+No v1, o Root é o método de instalação primário. Shizuku é o primeiro fallback quando root não está disponível.
 
 Shizuku provides ADB-level permissions without root. It enables:
-- Silent APK installation via `pm install`
+- Silent APK installation via `pm install` (stdin pipe)
 - Split APK installation via `pm install-create` + `install-write` + `install-commit`
 - Bypasses package installer UI
 

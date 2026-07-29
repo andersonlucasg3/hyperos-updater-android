@@ -36,7 +36,7 @@ class AppDetailViewModel @Inject constructor(
     private val trackedAppDao: TrackedAppDao,
     private val updateHistoryDao: UpdateHistoryDao,
     private val downloadUpdateUseCase: DownloadUpdateUseCase,
-    @Named("shizuku") private val shizukuInstaller: ApkInstaller,
+    @Named("root") private val rootInstaller: ApkInstaller,
     @Named("fallback") private val fallbackInstaller: ApkInstaller
 ) : ViewModel() {
 
@@ -117,8 +117,8 @@ class AppDetailViewModel @Inject constructor(
                 }
 
                 val isSystemApp = update.appType == AppType.SYSTEM
-                val result = shizukuInstaller.install(file, update.packageName, isSystemApp)
-                if (result is com.hyperos.updater.domain.installer.InstallResult.ShizukuNotAvailable) {
+                val result = rootInstaller.install(file, update.packageName, isSystemApp)
+                if (result is com.hyperos.updater.domain.installer.InstallResult.RootNotAvailable) {
                     fallbackInstaller.install(file, update.packageName, isSystemApp)
                 }
 

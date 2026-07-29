@@ -12,9 +12,6 @@
 # Room
 -keep class com.hyperos.updater.data.local.entity.** { *; }
 
-# Shizuku
--keep class rikka.shizuku.** { *; }
-
 # OkHttp
 -dontwarn okhttp3.**
 -dontwarn okio.**

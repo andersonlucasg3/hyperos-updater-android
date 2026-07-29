@@ -5,7 +5,6 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
-import com.hyperos.updater.util.ShizukuHelper
 import com.hyperos.updater.worker.WorkerScheduler
 import dagger.hilt.android.HiltAndroidApp
 import javax.inject.Inject
@@ -23,7 +22,6 @@ class HyperOsApp : Application(), Configuration.Provider {
 
     override fun onCreate() {
         super.onCreate()
-        ShizukuHelper.init()
         createNotificationChannels()
         WorkerScheduler.scheduleAll(this)
     }

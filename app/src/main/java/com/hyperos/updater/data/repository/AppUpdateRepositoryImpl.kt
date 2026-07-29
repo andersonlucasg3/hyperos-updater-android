@@ -3,15 +3,19 @@ package com.hyperos.updater.data.repository
 import android.content.Context
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
+import android.util.Log
 import com.hyperos.updater.data.local.dao.TrackedAppDao
 import com.hyperos.updater.data.remote.ApkComboResult
 import com.hyperos.updater.data.remote.ApkComboService
 import com.hyperos.updater.data.remote.ApkPureResult
 import com.hyperos.updater.data.remote.ApkMirrorService
 import com.hyperos.updater.data.remote.ApkPureService
+import com.hyperos.updater.data.remote.AptoideService
 import com.hyperos.updater.data.remote.FDroidService
 import com.hyperos.updater.data.remote.GitHubService
 import com.hyperos.updater.data.remote.MemeOsService
+import com.hyperos.updater.data.remote.TencentService
+import com.hyperos.updater.data.remote.UptodownService
 import com.hyperos.updater.domain.model.AppInfo
 import com.hyperos.updater.domain.model.AppType
 import com.hyperos.updater.domain.model.AppUpdate
@@ -24,6 +28,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.sync.Semaphore
@@ -38,10 +43,13 @@ class AppUpdateRepositoryImpl @Inject constructor(
     private val trackedAppDao: TrackedAppDao,
     private val apkPureService: ApkPureService,
     private val apkComboService: ApkComboService,
+    private val aptoideService: AptoideService,
     private val fDroidService: FDroidService,
     private val apkMirrorService: ApkMirrorService,
     private val gitHubService: GitHubService,
-    private val memeOsService: MemeOsService
+    private val memeOsService: MemeOsService,
+    private val uptodownService: UptodownService,
+    private val tencentService: TencentService
 ) : AppUpdateRepository {
 
     override suspend fun getInstalledApps(appType: AppType): List<AppInfo> =
@@ -84,79 +92,14 @@ class AppUpdateRepositoryImpl @Inject constructor(
 
     override fun checkSystemAppUpdates(): Flow<AppUpdate> = flow {
         val installed = getInstalledApps(AppType.SYSTEM)
-        checkWithSources(installed, AppType.SYSTEM).collect { emit(it) }
-    }
+        val catalog = memeOsService.fetchSystemAppsCatalog(forceRefresh = true)
+        val semaphore = Semaphore(6)
 
-    override fun checkThirdPartyAppUpdates(): Flow<AppUpdate> = flow {
-        val installed = getInstalledApps(AppType.THIRD_PARTY)
-        checkWithSources(installed, AppType.THIRD_PARTY).collect { emit(it) }
-    }
-
-    private fun checkWithSources(
-        apps: List<AppInfo>,
-        appType: AppType
-    ): Flow<AppUpdate> = flow {
-        val semaphore = Semaphore(6) // 6 concurrent apps, each queries 4 sources
-        val now = System.currentTimeMillis()
-
-        coroutineScope {
-            apps.map { app ->
+        supervisorScope {
+            installed.map { app ->
                 async {
                     semaphore.withPermit {
-                        trackedAppDao.updateCurrentVersion(app.packageName, app.versionName, now)
-
-                        // Query all six sources in parallel
-                        val pureDeferred = async { tryApkPure(app.packageName) }
-                        val comboDeferred = async { tryApkCombo(app.packageName) }
-                        val fdroidDeferred = async { tryFDroid(app.packageName) }
-                        val mirrorDeferred = async { tryApkMirror(app) }
-                        val githubDeferred = async { tryGitHub(app.packageName) }
-                        val memeosDeferred = async { tryMemeOs(app.packageName) }
-                        val pureResult = pureDeferred.await()
-                        val comboResult = comboDeferred.await()
-                        val fdroidResult = fdroidDeferred.await()
-                        val mirrorResult = mirrorDeferred.await()
-                        val githubResult = githubDeferred.await()
-                        val memeosResult = memeosDeferred.await()
-
-                        // Collect all source versions that are genuinely newer than installed
-                        val allSourceResults = listOfNotNull(pureResult, comboResult, fdroidResult, mirrorResult, githubResult, memeosResult)
-                        val sourceVersions = allSourceResults
-                            .filter { VersionComparator.isNewer(app.versionName, it.versionName) }
-                            .map { SourceVersion(it.source, it.versionName, it.downloadUrl) }
-
-                        // If F-Droid found it with real versionCode > installed, it's an update
-                        val hasUpdate = (fdroidResult != null && fdroidResult.versionCode > app.versionCode) ||
-                            sourceVersions.any { VersionComparator.isNewer(app.versionName, it.version) }
-
-                        // Best = highest version from NEWER sources only
-                        val best = if (hasUpdate) pickBest(
-                            pureResult?.takeIf { sourceVersions.any { sv -> sv.source == UpdateSource.APKPURE } },
-                            comboResult?.takeIf { sourceVersions.any { sv -> sv.source == UpdateSource.APKCOMBO } },
-                            fdroidResult?.takeIf { sourceVersions.any { sv -> sv.source == UpdateSource.FDROID } },
-                            mirrorResult?.takeIf { sourceVersions.any { sv -> sv.source == UpdateSource.APKMIRROR } },
-                            githubResult?.takeIf { sourceVersions.any { sv -> sv.source == UpdateSource.GITHUB } },
-                            memeosResult?.takeIf { sourceVersions.any { sv -> sv.source == UpdateSource.MEMEOS } }
-                        ) else null
-
-                        // Use real versionCode from FDroid if available, else best source
-                        val realVersionCode = fdroidResult?.versionCode ?: best?.versionCode ?: app.versionCode
-                        val primarySource = best?.source ?: UpdateSource.UNTRACKED
-
-                        AppUpdate(
-                            packageName = app.packageName,
-                            appName = app.appName,
-                            currentVersion = app.versionName,
-                            latestVersion = if (hasUpdate) best?.versionName ?: app.versionName else app.versionName,
-                            latestVersionCode = realVersionCode,
-                            fileSize = best?.fileSize,
-                            downloadUrl = best?.downloadUrl,
-                            changelog = null,
-                            publishedDate = null,
-                            updateSource = primarySource,
-                            appType = appType,
-                            sourceVersions = sourceVersions
-                        )
+                        checkOneSystemApp(app, catalog)
                     }
                 }
             }.forEach { deferred ->
@@ -165,18 +108,255 @@ class AppUpdateRepositoryImpl @Inject constructor(
         }
     }
 
+    private suspend fun checkOneSystemApp(app: AppInfo, catalog: Map<String, String>): AppUpdate {
+        try {
+            trackedAppDao.updateCurrentVersion(app.packageName, app.versionName, System.currentTimeMillis())
+
+            if (app.packageName !in catalog) {
+                return untrackedSystemApp(app)
+            }
+
+            val details = try { memeOsService.getAppDetails(app.packageName) } catch (_: Exception) { null }
+                ?: return untrackedSystemApp(app)
+
+            // Xiaomi versionCodes aren't monotonic across regions/branches (gl vs cn use
+            // different epochs), so versionName has veto: code only decides when the
+            // semantic comparison doesn't indicate a downgrade. versionCode must never
+            // cross version LINES either (e.g. 0.0.0 vs 0.0.0-R are different lines).
+            val sameLine = VersionComparator.isSameLine(app.versionName, details.versionName)
+            val semanticNewer = VersionComparator.isNewer(app.versionName, details.versionName)
+            val semanticOlder = VersionComparator.isNewer(details.versionName, app.versionName)
+            val codeNewer = details.versionCode > 0 && app.versionCode > 0 && details.versionCode > app.versionCode
+            val hasUpdate = sameLine && (semanticNewer || (codeNewer && !semanticOlder))
+            if (hasUpdate) {
+                Log.i("MemeOs", "UPDATE ${app.packageName}: ${app.versionName} (${app.versionCode}) → ${details.versionName} (${details.versionCode})")
+            }
+
+            return AppUpdate(
+                packageName = app.packageName,
+                appName = app.appName,
+                currentVersion = app.versionName,
+                latestVersion = if (hasUpdate) details.versionName else app.versionName,
+                latestVersionCode = if (details.versionCode > 0) details.versionCode else app.versionCode,
+                fileSize = details.fileSizeBytes,
+                downloadUrl = details.downloadUrl,
+                changelog = null,
+                publishedDate = details.publishedDate,
+                updateSource = UpdateSource.MEMEOS,
+                appType = AppType.SYSTEM,
+                sourceVersions = listOf(SourceVersion(UpdateSource.MEMEOS, details.versionName, details.downloadUrl))
+            )
+        } catch (e: Exception) {
+            Log.e("AppUpdateRepo", "System app check failed for ${app.packageName}", e)
+            return untrackedSystemApp(app)
+        }
+    }
+
+    private fun untrackedSystemApp(app: AppInfo): AppUpdate = AppUpdate(
+        packageName = app.packageName,
+        appName = app.appName,
+        currentVersion = app.versionName,
+        latestVersion = app.versionName,
+        latestVersionCode = app.versionCode,
+        fileSize = null,
+        downloadUrl = null,
+        changelog = null,
+        publishedDate = null,
+        updateSource = UpdateSource.UNTRACKED,
+        appType = AppType.SYSTEM
+    )
+
+    override fun checkThirdPartyAppUpdates(): Flow<AppUpdate> = flow {
+        val installed = getInstalledApps(AppType.THIRD_PARTY)
+        checkWithSources(installed, AppType.THIRD_PARTY).collect { emit(it) }
+    }
+
+    override suspend fun recheckApp(packageName: String, appType: AppType): AppUpdate =
+        withContext(Dispatchers.IO) {
+            val pm = context.packageManager
+            val pkgInfo = try {
+                pm.getPackageInfo(packageName, 0)
+            } catch (_: PackageManager.NameNotFoundException) {
+                null
+            }
+
+            if (pkgInfo == null) {
+                return@withContext AppUpdate(
+                    packageName = packageName,
+                    appName = packageName,
+                    currentVersion = "",
+                    latestVersion = "",
+                    latestVersionCode = 0L,
+                    fileSize = null,
+                    downloadUrl = null,
+                    changelog = null,
+                    publishedDate = null,
+                    updateSource = UpdateSource.UNTRACKED,
+                    appType = appType
+                )
+            }
+
+            val info = pkgInfo.applicationInfo
+            val versionName = pkgInfo.versionName
+            if (info == null || versionName == null ||
+                versionName.isBlank() ||
+                versionName.all { it == '0' || it == '.' }
+            ) {
+                return@withContext AppUpdate(
+                    packageName = packageName,
+                    appName = info?.loadLabel(pm)?.toString() ?: packageName,
+                    currentVersion = versionName ?: "",
+                    latestVersion = versionName ?: "",
+                    latestVersionCode = 0L,
+                    fileSize = null,
+                    downloadUrl = null,
+                    changelog = null,
+                    publishedDate = null,
+                    updateSource = UpdateSource.UNTRACKED,
+                    appType = appType
+                )
+            }
+
+            val app = AppInfo(
+                packageName = pkgInfo.packageName,
+                appName = info.loadLabel(pm)?.toString() ?: pkgInfo.packageName,
+                versionName = versionName,
+                versionCode = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                    pkgInfo.longVersionCode
+                } else {
+                    @Suppress("DEPRECATION") pkgInfo.versionCode.toLong()
+                },
+                isSystemApp = (info.flags and ApplicationInfo.FLAG_SYSTEM) != 0 ||
+                    (info.flags and ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0
+            )
+
+            when (appType) {
+                AppType.SYSTEM -> {
+                    val catalog = memeOsService.fetchSystemAppsCatalog(forceRefresh = false)
+                    checkOneSystemApp(app, catalog)
+                }
+                AppType.THIRD_PARTY -> checkOneThirdPartyApp(app, appType)
+            }
+        }
+
+    private fun checkWithSources(
+        apps: List<AppInfo>,
+        appType: AppType
+    ): Flow<AppUpdate> = flow {
+        val semaphore = Semaphore(6)
+
+        supervisorScope {
+            apps.map { app ->
+                async {
+                    semaphore.withPermit {
+                        checkOneThirdPartyApp(app, appType)
+                    }
+                }
+            }.forEach { deferred ->
+                emit(deferred.await())
+            }
+        }
+    }
+
+    private suspend fun checkOneThirdPartyApp(app: AppInfo, appType: AppType = AppType.THIRD_PARTY): AppUpdate =
+        coroutineScope {
+            try {
+                trackedAppDao.updateCurrentVersion(app.packageName, app.versionName, System.currentTimeMillis())
+
+                // Query all eight sources in parallel
+                val pureDeferred = async { tryApkPure(app.packageName) }
+                val comboDeferred = async { tryApkCombo(app.packageName) }
+                val aptoideDeferred = async { tryAptoide(app.packageName) }
+                val fdroidDeferred = async { tryFDroid(app.packageName) }
+                val mirrorDeferred = async { tryApkMirror(app) }
+                val githubDeferred = async { tryGitHub(app.packageName) }
+                val memeosDeferred = async { tryMemeOs(app.packageName) }
+                val uptodownDeferred = async { tryUptodown(app) }
+                val tencentDeferred = async { tryTencent(app.packageName) }
+                val pureResult = pureDeferred.await()
+                val comboResult = comboDeferred.await()
+                val aptoideResult = aptoideDeferred.await()
+                val fdroidResult = fdroidDeferred.await()
+                val mirrorResult = mirrorDeferred.await()
+                val githubResult = githubDeferred.await()
+                val memeosResult = memeosDeferred.await()
+                val uptodownResult = uptodownDeferred.await()
+                val tencentResult = tencentDeferred.await()
+
+                // Collect all source versions that are genuinely newer than installed
+                val allSourceResults = listOfNotNull(pureResult, comboResult, aptoideResult, fdroidResult, mirrorResult, githubResult, memeosResult, uptodownResult, tencentResult)
+                val sourceVersions = allSourceResults
+                    .filter { VersionComparator.isNewer(app.versionName, it.versionName) }
+                    .map { SourceVersion(it.source, it.versionName, it.downloadUrl) }
+
+                // If F-Droid found it with real versionCode > installed, it's an update —
+                // but only within the same version line (code must not cross lines)
+                val hasUpdate = (fdroidResult != null && fdroidResult.versionCode > app.versionCode &&
+                    VersionComparator.isSameLine(app.versionName, fdroidResult.versionName)) ||
+                    sourceVersions.any { VersionComparator.isNewer(app.versionName, it.version) }
+
+                // Best = highest version from NEWER sources only
+                val best = if (hasUpdate) pickBest(
+                    pureResult?.takeIf { sourceVersions.any { sv -> sv.source == UpdateSource.APKPURE } },
+                    comboResult?.takeIf { sourceVersions.any { sv -> sv.source == UpdateSource.APKCOMBO } },
+                    aptoideResult?.takeIf { sourceVersions.any { sv -> sv.source == UpdateSource.APTOIDE } },
+                    fdroidResult?.takeIf { sourceVersions.any { sv -> sv.source == UpdateSource.FDROID } },
+                    mirrorResult?.takeIf { sourceVersions.any { sv -> sv.source == UpdateSource.APKMIRROR } },
+                    githubResult?.takeIf { sourceVersions.any { sv -> sv.source == UpdateSource.GITHUB } },
+                    uptodownResult?.takeIf { sourceVersions.any { sv -> sv.source == UpdateSource.UPTODOWN } },
+                    memeosResult?.takeIf { sourceVersions.any { sv -> sv.source == UpdateSource.MEMEOS } },
+                    tencentResult?.takeIf { sourceVersions.any { sv -> sv.source == UpdateSource.TENCENT } }
+                ) else null
+
+                // Use real versionCode from FDroid if available, else best source
+                val realVersionCode = fdroidResult?.versionCode ?: best?.versionCode ?: app.versionCode
+                val primarySource = best?.source ?: UpdateSource.UNTRACKED
+
+                AppUpdate(
+                    packageName = app.packageName,
+                    appName = app.appName,
+                    currentVersion = app.versionName,
+                    latestVersion = if (hasUpdate) best?.versionName ?: app.versionName else app.versionName,
+                    latestVersionCode = realVersionCode,
+                    fileSize = best?.fileSize,
+                    downloadUrl = best?.downloadUrl,
+                    changelog = null,
+                    publishedDate = null,
+                    updateSource = primarySource,
+                    appType = appType,
+                    sourceVersions = sourceVersions
+                )
+            } catch (e: Exception) {
+                Log.e("AppUpdateRepo", "Third-party check failed for ${app.packageName}", e)
+                AppUpdate(
+                    packageName = app.packageName,
+                    appName = app.appName,
+                    currentVersion = app.versionName,
+                    latestVersion = app.versionName,
+                    latestVersionCode = app.versionCode,
+                    fileSize = null,
+                    downloadUrl = null,
+                    changelog = null,
+                    publishedDate = null,
+                    updateSource = UpdateSource.UNTRACKED,
+                    appType = appType
+                )
+            }
+        }
+
     private fun pickBest(
-        pure: SourceResult?, combo: SourceResult?, fdroid: SourceResult?, mirror: SourceResult?, github: SourceResult?, memeos: SourceResult? = null
+        pure: SourceResult?, combo: SourceResult?, aptoide: SourceResult?, fdroid: SourceResult?,
+        mirror: SourceResult?, github: SourceResult?, uptodown: SourceResult?, memeos: SourceResult? = null,
+        tencent: SourceResult? = null
     ): SourceResult? {
-        val list = listOfNotNull(pure, combo, fdroid, mirror, github, memeos)
+        val list = listOfNotNull(pure, combo, aptoide, fdroid, mirror, github, uptodown, memeos, tencent)
         if (list.isEmpty()) return null
         if (list.size == 1) return list.first()
         // APKCombo is last resort — many listings have no actual download
         val nonCombo = list.filter { it.source != UpdateSource.APKCOMBO }
         val candidates = nonCombo.ifEmpty { list }
         return candidates.maxWithOrNull { a, b ->
-            if (a.versionCode > 0 && b.versionCode > 0) a.versionCode.compareTo(b.versionCode)
-            else if (VersionComparator.isNewer(a.versionName, b.versionName)) 1 else -1
+            VersionComparator.compare(a.versionName, a.versionCode, b.versionName, b.versionCode)
         }
     }
 
@@ -188,6 +368,16 @@ class AppUpdateRepositoryImpl @Inject constructor(
     private suspend fun tryApkCombo(pkg: String): SourceResult? = try {
         val r = apkComboService.search(pkg) ?: return null
         SourceResult(r.versionName, r.versionCode, r.downloadUrl, r.fileSize, UpdateSource.APKCOMBO)
+    } catch (_: Exception) { null }
+
+    private suspend fun tryAptoide(pkg: String): SourceResult? = try {
+        val r = aptoideService.checkVersion(pkg) ?: return null
+        SourceResult(r.versionName, r.versionCode, r.downloadUrl, r.fileSize, UpdateSource.APTOIDE)
+    } catch (_: Exception) { null }
+
+    private suspend fun tryUptodown(app: AppInfo): SourceResult? = try {
+        val r = uptodownService.checkVersion(app.packageName) ?: return null
+        SourceResult(r.versionName, r.versionCode, r.downloadUrl, null, UpdateSource.UPTODOWN)
     } catch (_: Exception) { null }
 
     private suspend fun tryFDroid(pkg: String): SourceResult? = try {
@@ -214,6 +404,11 @@ class AppUpdateRepositoryImpl @Inject constructor(
     private suspend fun tryMemeOs(pkg: String): SourceResult? = try {
         val r = memeOsService.checkVersion(pkg) ?: return null
         SourceResult(r.versionName, 0L, r.downloadUrl, null, UpdateSource.MEMEOS)
+    } catch (_: Exception) { null }
+
+    private suspend fun tryTencent(pkg: String): SourceResult? = try {
+        val r = tencentService.checkVersion(pkg) ?: return null
+        SourceResult(r.versionName, 0L, r.downloadUrl, null, UpdateSource.TENCENT)
     } catch (_: Exception) { null }
 }
 

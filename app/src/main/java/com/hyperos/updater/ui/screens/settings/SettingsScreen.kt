@@ -1,6 +1,5 @@
 package com.hyperos.updater.ui.screens.settings
 
-import android.content.Intent
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -11,11 +10,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.hyperos.updater.util.ShizukuHelper
-import com.hyperos.updater.util.ShizukuState
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -23,13 +19,8 @@ fun SettingsScreen(
     onBack: () -> Unit,
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
-    val context = LocalContext.current
-    var shizukuState by remember { mutableStateOf(ShizukuHelper.checkState()) }
-
-    LaunchedEffect(Unit) {
-        kotlinx.coroutines.delay(1500)
-        shizukuState = ShizukuHelper.checkState()
-    }
+    val rootAvailable by viewModel.rootAvailable.collectAsState()
+    val autoUpdateEnabled by viewModel.autoUpdateEnabled.collectAsState()
 
     Scaffold(
         topBar = {
@@ -47,69 +38,75 @@ fun SettingsScreen(
             modifier = Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            Text("Shizuku Setup", style = MaterialTheme.typography.titleLarge)
+            Text("Root", style = MaterialTheme.typography.titleLarge)
 
             Card(modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = when (shizukuState) {
-                    ShizukuState.READY -> MaterialTheme.colorScheme.primaryContainer
-                    else -> MaterialTheme.colorScheme.surfaceVariant
+                colors = CardDefaults.cardColors(containerColor = when (rootAvailable) {
+                    true -> MaterialTheme.colorScheme.primaryContainer
+                    false -> MaterialTheme.colorScheme.errorContainer
+                    null -> MaterialTheme.colorScheme.surfaceVariant
                 })
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(when (shizukuState) {
-                            ShizukuState.READY -> Icons.Default.CheckCircle
-                            else -> Icons.Default.Info
+                        Icon(when (rootAvailable) {
+                            true -> Icons.Default.CheckCircle
+                            false -> Icons.Default.Warning
+                            null -> Icons.Default.HourglassEmpty
                         }, contentDescription = null)
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text(when (shizukuState) {
-                            ShizukuState.NOT_INSTALLED -> "Not installed"
-                            ShizukuState.INSTALLED_NOT_RUNNING -> "Not running"
-                            ShizukuState.RUNNING_NO_PERMISSION -> "Permission needed"
-                            ShizukuState.READY -> "Connected"
-                            ShizukuState.CHECKING -> "Checking..."
+                        Text(when (rootAvailable) {
+                            true -> "Root disponível"
+                            false -> "Root não disponível"
+                            null -> "Verificando..."
                         }, style = MaterialTheme.typography.titleMedium)
                     }
                     Spacer(modifier = Modifier.height(8.dp))
-                    Text(ShizukuHelper.getSetupInstructions(shizukuState), style = MaterialTheme.typography.bodySmall)
+                    Text(
+                        when (rootAvailable) {
+                            true -> "O acesso root está funcionando. Instalações silenciosas via su estão disponíveis."
+                            false -> "O app não detectou acesso root. Certifique-se de que o Magisk/KernelSU está instalado e conceda permissão quando solicitado."
+                            null -> "A verificar o estado do root..."
+                        },
+                        style = MaterialTheme.typography.bodySmall
+                    )
                     Spacer(modifier = Modifier.height(8.dp))
 
-                    when (shizukuState) {
-                        ShizukuState.NOT_INSTALLED ->
-                            Button(onClick = { ShizukuHelper.openShizukuPlayStore(context) },
-                                modifier = Modifier.fillMaxWidth()) { Text("Download Shizuku") }
-
-                        ShizukuState.INSTALLED_NOT_RUNNING, ShizukuState.RUNNING_NO_PERMISSION -> {
-                            Button(onClick = {
-                                val i = context.packageManager.getLaunchIntentForPackage("moe.shizuku.privileged.api")
-                                if (i != null) context.startActivity(i)
-                            }, modifier = Modifier.fillMaxWidth()) { Text("Open Shizuku") }
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text("In Shizuku: Authorized apps → enable HyperOS Updater → Refresh below",
-                                style = MaterialTheme.typography.labelSmall)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(
+                            onClick = { viewModel.requestRootAccess() },
+                            modifier = Modifier.weight(1f)
+                        ) { Text("Solicitar acesso root") }
+                        OutlinedButton(
+                            onClick = { viewModel.refreshRootStatus() }
+                        ) {
+                            Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Verificar novamente")
                         }
-
-                        ShizukuState.READY -> Text("Split APK install will work.", style = MaterialTheme.typography.bodySmall)
-                        else -> {}
-                    }
-
-                    Spacer(modifier = Modifier.height(4.dp))
-                    OutlinedButton(onClick = {
-                        shizukuState = ShizukuState.CHECKING
-                        shizukuState = ShizukuHelper.checkState()
-                    }, modifier = Modifier.fillMaxWidth()) {
-                        Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Refresh Status")
                     }
                 }
             }
 
+            // Auto Update Section
+            Text("App Updates", style = MaterialTheme.typography.titleLarge)
             Card(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text("Why Shizuku?", style = MaterialTheme.typography.titleMedium)
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text("Enables split APK install (APKM/XAPK/APKS). Without it, only single APKs work.", style = MaterialTheme.typography.bodySmall)
+                Row(
+                    modifier = Modifier.padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Atualização automática", style = MaterialTheme.typography.bodyLarge)
+                        Text(
+                            "Baixa e instala atualizações automaticamente via root quando disponíveis",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(
+                        checked = autoUpdateEnabled,
+                        onCheckedChange = { viewModel.setAutoUpdateEnabled(it) }
+                    )
                 }
             }
 

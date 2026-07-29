@@ -78,8 +78,44 @@ class NotificationHelper @Inject constructor(
         NotificationManagerCompat.from(context).notify(APP_NOTIFICATION_ID, notification)
     }
 
+    fun showAutoUpdateResults(successCount: Int, failCount: Int, skippedCount: Int, details: String) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED) {
+            return
+        }
+
+        val intent = Intent(context, MainActivity::class.java).apply {
+            putExtra("screen", "system_apps")
+        }
+        val pending = PendingIntent.getActivity(
+            context, 3, intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val summary = buildString {
+            append("Auto-update complete: ")
+            append("$successCount installed")
+            if (failCount > 0) append(", $failCount failed")
+            if (skippedCount > 0) append(", $skippedCount skipped")
+        }
+
+        val notification = NotificationCompat.Builder(context, HyperOsApp.CHANNEL_APP_UPDATES)
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setContentTitle("Auto-Update Results")
+            .setContentText(summary)
+            .setStyle(NotificationCompat.BigTextStyle().bigText("$summary\n\n$details"))
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setContentIntent(pending)
+            .setAutoCancel(true)
+            .build()
+
+        NotificationManagerCompat.from(context).notify(AUTO_UPDATE_NOTIFICATION_ID, notification)
+    }
+
     companion object {
         const val OTA_NOTIFICATION_ID = 100
         const val APP_NOTIFICATION_ID = 200
+        const val AUTO_UPDATE_NOTIFICATION_ID = 300
     }
 }

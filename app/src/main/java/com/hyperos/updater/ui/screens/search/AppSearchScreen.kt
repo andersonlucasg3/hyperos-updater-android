@@ -25,6 +25,7 @@ import com.hyperos.updater.ui.components.SourceBadge
 import com.hyperos.updater.ui.components.isOngoing
 import com.hyperos.updater.util.toHumanReadableSize
 import javax.inject.Inject
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -36,17 +37,30 @@ fun AppSearchScreen(
     val downloads by viewModel.downloadManager.downloads.collectAsState()
     val context = LocalContext.current
     var pendingKey by remember { mutableStateOf("") }
+    var pendingAppName by remember { mutableStateOf("") }
+    var pendingVersion by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
 
     val downloadLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
     ) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
-            val url = result.data?.getStringExtra("downloadUrl")
+            val url = result.data?.getStringExtra(com.hyperos.updater.ui.DownloadActivity.EXTRA_DOWNLOAD_URL)
             if (url != null && pendingKey.isNotBlank()) {
-                viewModel.downloadFromUrl(url, pendingKey, pendingKey.removePrefix("APKMIRROR"))
-                pendingKey = ""
+                val referer = result.data?.getStringExtra(com.hyperos.updater.ui.DownloadActivity.EXTRA_REFERER) ?: ""
+                val ua = result.data?.getStringExtra(com.hyperos.updater.ui.DownloadActivity.EXTRA_USER_AGENT) ?: ""
+                val cookie = result.data?.getStringExtra(com.hyperos.updater.ui.DownloadActivity.EXTRA_COOKIE) ?: ""
+                val headers = buildMap {
+                    if (referer.isNotBlank()) put("Referer", referer)
+                    if (ua.isNotBlank()) put("User-Agent", ua)
+                    if (cookie.isNotBlank()) put("Cookie", cookie)
+                }
+                viewModel.downloadFromUrl(url, pendingKey, pendingAppName, headers, version = pendingVersion)
             }
         }
+        pendingKey = ""
+        pendingAppName = ""
+        pendingVersion = null
     }
 
     Scaffold(
@@ -91,25 +105,39 @@ fun AppSearchScreen(
 
                     Card(modifier = Modifier.fillMaxWidth().clickable { expanded = !expanded }) {
                         Column(modifier = Modifier.padding(12.dp)) {
+                            if (dl?.progress?.status == DownloadStatus.ERROR && dl.progress.errorMessage != null) {
+                                Text("Erro: ${dl.progress.errorMessage}", style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.error)
+                                Spacer(modifier = Modifier.height(4.dp))
+                            }
                             Row(
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(result.appName, style = MaterialTheme.typography.titleMedium)
-                                    if (result.versionName != null) Text("v${result.versionName}", style = MaterialTheme.typography.bodySmall)
-                                    Row {
-                                        SourceBadge(result.source)
-                                        if (!result.devName.isNullOrBlank()) {
-                                            Spacer(modifier = Modifier.width(4.dp))
-                                            Text(result.devName, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                    com.hyperos.updater.ui.components.UrlAppIcon(result.iconUrl)
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Column {
+                                        Text(result.appName, style = MaterialTheme.typography.titleMedium)
+                                        if (result.versionName != null) Text("v${result.versionName}", style = MaterialTheme.typography.bodySmall)
+                                        Row {
+                                            SourceBadge(result.source)
+                                            if (!result.devName.isNullOrBlank()) {
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Text(result.devName, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            }
                                         }
                                     }
                                 }
 
                                 if (dl != null) {
                                     when (dl.progress.status) {
-                                        DownloadStatus.DOWNLOADING, DownloadStatus.PREPARING, DownloadStatus.INSTALLING ->
+                                        DownloadStatus.INSTALLING ->
+                                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                                CircularProgressIndicator(modifier = Modifier.size(16.dp))
+                                                Text("Instalando...", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                                            }
+                                        DownloadStatus.DOWNLOADING, DownloadStatus.PREPARING ->
                                             IconButton(onClick = { viewModel.downloadManager.cancelDownload(dlKey) }) {
                                                 Icon(Icons.Default.Cancel, contentDescription = "Cancel", tint = MaterialTheme.colorScheme.error)
                                             }
@@ -118,7 +146,9 @@ fun AppSearchScreen(
                                                 Icon(Icons.Default.InstallMobile, contentDescription = "Install", tint = MaterialTheme.colorScheme.primary)
                                             }
                                         DownloadStatus.COMPLETED ->
-                                            Icon(Icons.Default.CheckCircle, contentDescription = "Done", tint = MaterialTheme.colorScheme.primary)
+                                            IconButton(onClick = { viewModel.downloadManager.dismissDownload(dlKey) }) {
+                                                Icon(Icons.Default.CheckCircle, contentDescription = "Done", tint = MaterialTheme.colorScheme.primary)
+                                            }
                                         DownloadStatus.ERROR, DownloadStatus.CANCELLED ->
                                             IconButton(onClick = { viewModel.downloadManager.dismissDownload(dlKey) }) {
                                                 Icon(Icons.Default.Error, contentDescription = "Dismiss", tint = MaterialTheme.colorScheme.error)
@@ -127,15 +157,48 @@ fun AppSearchScreen(
                                 } else {
                                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                         IconButton(onClick = {
-                                            if (result.source == UpdateSource.APKMIRROR || result.source == UpdateSource.MEMEOS) {
+                                            if (result.source == UpdateSource.APKMIRROR || result.source == UpdateSource.MEMEOS || result.source == UpdateSource.UPTODOWN || result.source == UpdateSource.APKCOMBO) {
                                                 // Skip WebView if APK already cached
                                                 if (viewModel.downloadManager.installCached(dlKey, result.appName)) return@IconButton
+                                                // MEMEOS: try direct resolution first, fall back to WebView
+                                                if (result.source == UpdateSource.MEMEOS) {
+                                                    scope.launch {
+                                                        val directUrl = viewModel.resolveMemeOsDirectDownload(result.downloadPageUrl)
+                                                        if (directUrl != null) {
+                                                            viewModel.downloadFromUrl(directUrl, dlKey, result.appName, version = result.versionName)
+                                                            return@launch
+                                                        }
+                                                        // Fall back to WebView
+                                                        pendingKey = dlKey
+                                                        pendingAppName = result.appName
+                                                        pendingVersion = result.versionName
+                                                        val intent = Intent(context, com.hyperos.updater.ui.DownloadActivity::class.java)
+                                                        intent.putExtra(com.hyperos.updater.ui.DownloadActivity.EXTRA_URL, result.downloadPageUrl)
+                                                        intent.putExtra(com.hyperos.updater.ui.DownloadActivity.EXTRA_APP_NAME, result.appName)
+                                                        downloadLauncher.launch(intent)
+                                                    }
+                                                    return@IconButton
+                                                }
+                                                // UPTODOWN: open page in WebView — no URL transformation needed
+                                                if (result.source == UpdateSource.UPTODOWN || result.source == UpdateSource.APKCOMBO) {
+                                                    pendingKey = dlKey
+                                                    pendingAppName = result.appName
+                                                    pendingVersion = result.versionName
+                                                    val intent = Intent(context, com.hyperos.updater.ui.DownloadActivity::class.java)
+                                                    intent.putExtra(com.hyperos.updater.ui.DownloadActivity.EXTRA_URL, result.downloadPageUrl)
+                                                    intent.putExtra(com.hyperos.updater.ui.DownloadActivity.EXTRA_APP_NAME, result.appName)
+                                                    downloadLauncher.launch(intent)
+                                                    return@IconButton
+                                                }
                                                 pendingKey = dlKey
+                                                pendingAppName = result.appName
+                                                pendingVersion = result.versionName
                                                 val base = result.downloadPageUrl.trimEnd('/')
                                                 val slug = base.split("/").last { it.isNotBlank() }
                                                 val dlUrl = "$base/${slug.replace("-release", "-android-apk-download")}/"
                                                 val intent = Intent(context, com.hyperos.updater.ui.DownloadActivity::class.java)
-                                                intent.putExtra("url", dlUrl)
+                                                intent.putExtra(com.hyperos.updater.ui.DownloadActivity.EXTRA_URL, dlUrl)
+                                                intent.putExtra(com.hyperos.updater.ui.DownloadActivity.EXTRA_APP_NAME, result.appName)
                                                 downloadLauncher.launch(intent)
                                             } else {
                                                 viewModel.downloadFromPage(result)

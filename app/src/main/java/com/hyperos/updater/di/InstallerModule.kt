@@ -2,7 +2,7 @@ package com.hyperos.updater.di
 
 import com.hyperos.updater.domain.installer.ApkInstaller
 import com.hyperos.updater.domain.installer.PackageManagerInstaller
-import com.hyperos.updater.domain.installer.ShizukuApkInstaller
+import com.hyperos.updater.domain.installer.RootApkInstaller
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -16,8 +16,8 @@ object InstallerModule {
 
     @Provides
     @Singleton
-    @Named("shizuku")
-    fun provideShizukuInstaller(installer: ShizukuApkInstaller): ApkInstaller = installer
+    @Named("root")
+    fun provideRootInstaller(installer: RootApkInstaller): ApkInstaller = installer
 
     @Provides
     @Singleton

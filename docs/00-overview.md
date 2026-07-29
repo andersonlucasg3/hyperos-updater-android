@@ -3,28 +3,28 @@
 ## Objetivo
 
 App Android nativo para gerenciar atualizações em dispositivos Xiaomi rodando HyperOS/MIUI.
-Três tipos de atualização são suportados:
-
-1. **OTA do Sistema** — Atualizações da ROM HyperOS
-2. **Apps do Sistema** — Apps proprietários da Xiaomi (Launcher, Gallery, Security, etc.)
-3. **Apps de Terceiros** — Apps instalados pelo usuário
-
-## Funcionamento Geral
+Três abas principais:
 
 ```
-┌─────────────────────────────────────────────────────┐
-│                    HyperOS Updater                   │
-├───────────────┬─────────────────┬───────────────────┤
-│  OTA ROM      │  Apps do Sistema│  Apps de Terceiros│
-│  (Xiaomi API) │  (APKMirror)    │  (APKPure)        │
-├───────────────┴─────────────────┴───────────────────┤
-│  Download Manager (OkHttp + progresso)               │
-├─────────────────────────────────────────────────────┤
-│  Instalação (Shizuku ou PackageInstaller)            │
-├─────────────────────────────────────────────────────┤
-│  Background (WorkManager a cada 12h/24h)             │
-└─────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                    HyperOS Updater (v1)                         │
+├────────────────┬───────────────────────┬────────────────────────┤
+│  Find & Install│  Apps do Sistema      │  Apps de Terceiros     │
+│  (busca)       │  (MemeOs Updates)     │  (8 fontes paralelo)   │
+├────────────────┴───────────────────────┴────────────────────────┤
+│  Download Manager (OkHttp + progresso)                          │
+├─────────────────────────────────────────────────────────────────┤
+│  Instalação (Root su → PackageInstaller.Session → Intent)      │
+├─────────────────────────────────────────────────────────────────┤
+│  Background (WorkManager a cada 24h + Auto-Update opcional)     │
+└─────────────────────────────────────────────────────────────────┘
 ```
+
+1. **Find & Install** — Busca apps por nome em múltiplas fontes
+2. **Updates** — Lista apps instalados com atualizações disponíveis (aba padrão)
+3. **Settings** — Configurações (Root, Auto-Update, About)
+
+**Nota (v1):** A aba OTA foi removida. O código OTA ainda existe mas não está conectado à UI nem ao worker scheduler.
 
 ## Dispositivo Alvo
 
@@ -44,7 +44,7 @@ Três tipos de atualização são suportados:
 | Scraping | Jsoup |
 | Banco Local | Room |
 | Background | WorkManager |
-| Instalação | Shizuku 13 API + PackageInstaller |
+| Instalação | Root (su) → PackageInstaller.Session → Intent |
 | Build | Gradle 8.9 + AGP 8.7.3 |
 
 ## Arquitetura

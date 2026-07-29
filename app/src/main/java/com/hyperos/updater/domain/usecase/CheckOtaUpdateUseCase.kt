@@ -55,9 +55,9 @@ class CheckOtaUpdateUseCase @Inject constructor(
             sources.add(OtaSourceInfo(OtaSource.MEMEOS, memeOsUpdate.version, memeOsUpdate.downloadUrl))
         }
 
-        // Pick the newest version across sources
+        // Pick the newest version across sources (compare handles line-awareness)
         val best = listOfNotNull(xiaomiUpdate, memeOsUpdate).maxWithOrNull { a, b ->
-            if (VersionComparator.isNewer(a.version, b.version)) 1 else -1
+            VersionComparator.compare(a.version, 0, b.version, 0)
         }
 
         return if (best != null && VersionComparator.isNewer(device.miuiVersion, best.version)) {

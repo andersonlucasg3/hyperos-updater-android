@@ -13,7 +13,7 @@ import com.hyperos.updater.ui.screens.settings.SettingsTab
 
 @Composable
 fun MainScreen() {
-    var selectedTab by remember { mutableIntStateOf(0) }
+    var selectedTab by remember { mutableIntStateOf(2) }
 
     Scaffold(
         bottomBar = {

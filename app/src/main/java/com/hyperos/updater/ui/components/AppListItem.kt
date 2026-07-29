@@ -113,11 +113,14 @@ fun SourceBadge(source: UpdateSource) {
         UpdateSource.APKMIRROR -> "APKMirror" to MaterialTheme.colorScheme.primary
         UpdateSource.APKPURE -> "APKPure" to MaterialTheme.colorScheme.primary
         UpdateSource.APKCOMBO -> "APKCombo" to MaterialTheme.colorScheme.tertiary
+        UpdateSource.APTOIDE -> "Aptoide" to MaterialTheme.colorScheme.primary
         UpdateSource.FDROID -> "F-Droid" to MaterialTheme.colorScheme.secondary
         UpdateSource.GITHUB -> "GitHub" to MaterialTheme.colorScheme.primaryContainer
         UpdateSource.MEMEOS -> "MemeOS" to MaterialTheme.colorScheme.error
         UpdateSource.TRACKER -> "System" to MaterialTheme.colorScheme.secondary
         UpdateSource.UNTRACKED -> "not tracked" to MaterialTheme.colorScheme.onSurfaceVariant
+        UpdateSource.UPTODOWN -> "Uptodown" to MaterialTheme.colorScheme.tertiary
+        UpdateSource.TENCENT -> "Tencent" to MaterialTheme.colorScheme.secondaryContainer
     }
     Surface(
         color = color.copy(alpha = 0.12f),
