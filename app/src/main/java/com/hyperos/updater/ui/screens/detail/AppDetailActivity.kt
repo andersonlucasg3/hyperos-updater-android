@@ -9,6 +9,7 @@ import androidx.activity.viewModels
 import com.hyperos.updater.domain.model.AppType
 import com.hyperos.updater.domain.model.UpdateSource
 import com.hyperos.updater.ui.DownloadActivity
+import com.hyperos.updater.ui.theme.HyperOsTheme
 import dagger.hilt.android.AndroidEntryPoint
 
 @AndroidEntryPoint
@@ -88,19 +89,21 @@ class AppDetailActivity : ComponentActivity() {
         }
 
         setContent {
-            AppDetailScreen(
-                viewModel = viewModel,
-                onBack = { finish() },
-                onDownloadViaWebView = { key, appName, version, url ->
-                    pendingDlKey = key
-                    pendingDlAppName = appName
-                    pendingDlVersion = version
-                    val intent = Intent(this, DownloadActivity::class.java)
-                    intent.putExtra(DownloadActivity.EXTRA_URL, url)
-                    intent.putExtra(DownloadActivity.EXTRA_APP_NAME, appName)
-                    downloadLauncher.launch(intent)
-                }
-            )
+            HyperOsTheme {
+                AppDetailScreen(
+                    viewModel = viewModel,
+                    onBack = { finish() },
+                    onDownloadViaWebView = { key, appName, version, url ->
+                        pendingDlKey = key
+                        pendingDlAppName = appName
+                        pendingDlVersion = version
+                        val intent = Intent(this, DownloadActivity::class.java)
+                        intent.putExtra(DownloadActivity.EXTRA_URL, url)
+                        intent.putExtra(DownloadActivity.EXTRA_APP_NAME, appName)
+                        downloadLauncher.launch(intent)
+                    }
+                )
+            }
         }
 
         // Load data

@@ -181,6 +181,48 @@ fun AppDetailScreen(
                 }
             }
 
+            // ── Actions ────────────────────────────────────────────────────
+            if (state.isInstalled && !state.isSearchOrigin) {
+                item {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text("Ações", style = MaterialTheme.typography.titleMedium)
+                }
+                item {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (state.latestVersion != state.currentVersion && state.latestVersion.isNotBlank()) {
+                            OutlinedButton(onClick = { viewModel.skipVersion() },
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = ButtonDefaults.outlinedButtonColors(
+                                    contentColor = MaterialTheme.colorScheme.outline
+                                )) {
+                                Icon(Icons.Default.Block, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Pular ${state.latestVersion}")
+                            }
+                        }
+                        OutlinedButton(onClick = { viewModel.hideApp() },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                contentColor = MaterialTheme.colorScheme.error
+                            )) {
+                            Icon(Icons.Default.VisibilityOff, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Ocultar app")
+                        }
+                        OutlinedButton(onClick = { viewModel.recheck() },
+                            modifier = Modifier.fillMaxWidth()) {
+                            if (state.isChecking) {
+                                CircularProgressIndicator(modifier = Modifier.size(16.dp))
+                            } else {
+                                Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                            }
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Verificar novamente")
+                        }
+                    }
+                }
+            }
+
             // ── Versões por fonte (search-origin: all hits) ──────────────────
             if (state.isSearchOrigin && state.searchHits.isNotEmpty()) {
                 item {
@@ -189,6 +231,9 @@ fun AppDetailScreen(
                 items(state.searchHits) { hit ->
                     val hitKey = hit.source.name + state.appName
                     val hitDl = downloads[hitKey]
+                    val hitVersion = hit.versionName ?: state.latestVersion
+                    val skipKey = state.packageName + "|" + (hit.versionName ?: "")
+                    val isSkipped = hit.versionName != null && skipKey in state.skippedVersions
                     Card(modifier = Modifier.fillMaxWidth()) {
                         Column(modifier = Modifier.padding(12.dp)) {
                             Row(
@@ -199,11 +244,27 @@ fun AppDetailScreen(
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Column(modifier = Modifier.weight(1f)) {
                                     if (hit.versionName != null) {
-                                        Text(hit.versionName, style = MaterialTheme.typography.bodyMedium)
+                                        Text(
+                                            hit.versionName,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            textDecoration = if (isSkipped) androidx.compose.ui.text.style.TextDecoration.LineThrough else null,
+                                            color = if (isSkipped) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface
+                                        )
+                                        if (isSkipped) {
+                                            Text("ignorada", style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.outline)
+                                        }
                                     }
                                     Text(hit.downloadPageUrl, style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         maxLines = 1)
+                                }
+                                if (hit.versionName != null && !isSkipped) {
+                                    IconButton(onClick = { viewModel.skipSpecificVersion(hit.versionName) }) {
+                                        Icon(Icons.Default.Block, contentDescription = "Ignorar versão",
+                                            modifier = Modifier.size(20.dp),
+                                            tint = MaterialTheme.colorScheme.outline)
+                                    }
                                 }
                                 if (hitDl != null && hitDl.progress.status.isOngoing()) {
                                     Text("${hitDl.progress.progress}%",
@@ -226,7 +287,7 @@ fun AppDetailScreen(
                                     IconButton(onClick = {
                                         viewModel.downloadFromSource(
                                             hit.source, hit.downloadPageUrl, state.appName,
-                                            hit.versionName ?: state.latestVersion
+                                            hitVersion, hitKey
                                         ) { key, appName, version, url ->
                                             onDownloadViaWebView(key, appName, version, url)
                                         }
@@ -278,6 +339,8 @@ fun AppDetailScreen(
                 items(state.sourceVersions) { sv ->
                     val svKey = sv.source.name + state.appName
                     val svDl = downloads[svKey]
+                    val svSkipKey = state.packageName + "|" + sv.version
+                    val svIsSkipped = svSkipKey in state.skippedVersions
                     Card(modifier = Modifier.fillMaxWidth()) {
                         Row(
                             modifier = Modifier.padding(12.dp),
@@ -288,11 +351,25 @@ fun AppDetailScreen(
                             Text(
                                 sv.version,
                                 style = MaterialTheme.typography.bodyMedium,
+                                textDecoration = if (svIsSkipped) androidx.compose.ui.text.style.TextDecoration.LineThrough else null,
                                 color = if (sv.version != state.currentVersion && state.isInstalled)
                                     MaterialTheme.colorScheme.primary
+                                else if (svIsSkipped) MaterialTheme.colorScheme.onSurfaceVariant
                                 else MaterialTheme.colorScheme.onSurface,
                                 modifier = Modifier.weight(1f)
                             )
+                            if (svIsSkipped) {
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("ignorada", style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.outline)
+                            }
+                            if (!svIsSkipped) {
+                                IconButton(onClick = { viewModel.skipSpecificVersion(sv.version) }) {
+                                    Icon(Icons.Default.Block, contentDescription = "Ignorar versão",
+                                        modifier = Modifier.size(20.dp),
+                                        tint = MaterialTheme.colorScheme.outline)
+                                }
+                            }
                             if (sv.downloadUrl != null && (!state.isInstalled || sv.version != state.currentVersion)) {
                                 if (svDl != null && svDl.progress.status.isOngoing()) {
                                     Text("${svDl.progress.progress}%",
@@ -317,7 +394,7 @@ fun AppDetailScreen(
                                             state.packageName, sv.source, sv.downloadUrl
                                         )
                                         viewModel.downloadFromSource(
-                                            sv.source, pageUrl, state.appName, sv.version
+                                            sv.source, pageUrl, state.appName, sv.version, svKey
                                         ) { key, appName, version, url ->
                                             onDownloadViaWebView(key, appName, version, url)
                                         }
@@ -371,6 +448,8 @@ fun AppDetailScreen(
                 items(state.memeosHistory) { entry ->
                     val dlKey = UpdateSource.MEMEOS.name + state.appName + entry.version
                     val dl = downloads[dlKey]
+                    val skipKey = state.packageName + "|" + entry.version
+                    val isSkipped = skipKey in state.skippedVersions
                     val isInstalledVer = state.isInstalled &&
                         (entry.version == state.installedVersion || entry.version == state.currentVersion)
                     VersionHistoryCard(
@@ -378,10 +457,12 @@ fun AppDetailScreen(
                         subtitle = "${entry.region} · ${entry.date}" +
                             (entry.sizeBytes?.let { " · ${it.toHumanReadableSize()}" } ?: ""),
                         isInstalled = isInstalledVer,
+                        isSkipped = isSkipped,
+                        onSkipVersion = { viewModel.skipSpecificVersion(entry.version) },
                         downloadKey = dlKey,
                         download = dl,
                         onDownload = { viewModel.downloadFromSource(
-                            UpdateSource.MEMEOS, entry.pageUrl, state.appName, entry.version
+                            UpdateSource.MEMEOS, entry.pageUrl, state.appName, entry.version, dlKey
                         ) { key, appName, version, url ->
                             onDownloadViaWebView(key, appName, version, url)
                         }},
@@ -398,12 +479,16 @@ fun AppDetailScreen(
                 items(state.fdroidHistory) { entry ->
                     val dlKey = UpdateSource.FDROID.name + state.appName + entry.versionName
                     val dl = downloads[dlKey]
+                    val skipKey = state.packageName + "|" + entry.versionName
+                    val isSkipped = skipKey in state.skippedVersions
                     val isInstalledVer = state.isInstalled &&
                         (entry.versionName == state.installedVersion || entry.versionName == state.currentVersion)
                     VersionHistoryCard(
                         version = entry.versionName,
                         subtitle = "Código: ${entry.versionCode}",
                         isInstalled = isInstalledVer,
+                        isSkipped = isSkipped,
+                        onSkipVersion = { viewModel.skipSpecificVersion(entry.versionName) },
                         downloadKey = dlKey,
                         download = dl,
                         onDownload = {
@@ -426,12 +511,16 @@ fun AppDetailScreen(
                     val dlKey = UpdateSource.GITHUB.name + state.appName + entry.tag
                     val dl = downloads[dlKey]
                     val versionDisplay = entry.tag.removePrefix("v").removePrefix("V")
+                    val skipKey = state.packageName + "|" + versionDisplay
+                    val isSkipped = skipKey in state.skippedVersions
                     val isInstalledVer = state.isInstalled &&
                         (versionDisplay == state.installedVersion || versionDisplay == state.currentVersion)
                     VersionHistoryCard(
                         version = versionDisplay,
                         subtitle = entry.name + (entry.publishedAt?.let { " · $it" } ?: ""),
                         isInstalled = isInstalledVer,
+                        isSkipped = isSkipped,
+                        onSkipVersion = { viewModel.skipSpecificVersion(versionDisplay) },
                         downloadKey = dlKey,
                         download = dl,
                         onDownload = {
@@ -453,12 +542,16 @@ fun AppDetailScreen(
                 items(state.apkmirrorHistory) { entry ->
                     val dlKey = UpdateSource.APKMIRROR.name + state.appName + entry.version
                     val dl = downloads[dlKey]
+                    val skipKey = state.packageName + "|" + entry.version
+                    val isSkipped = skipKey in state.skippedVersions
                     val isInstalledVer = state.isInstalled &&
                         (entry.version == state.installedVersion || entry.version == state.currentVersion)
                     VersionHistoryCard(
                         version = entry.version,
                         subtitle = "APKMirror",
                         isInstalled = isInstalledVer,
+                        isSkipped = isSkipped,
+                        onSkipVersion = { viewModel.skipSpecificVersion(entry.version) },
                         downloadKey = dlKey,
                         download = dl,
                         onDownload = {
@@ -515,44 +608,7 @@ fun AppDetailScreen(
                 item { LoadingHistoryItem("APKMirror") }
             }
 
-            // ── Actions ────────────────────────────────────────────────────
-            if (state.isInstalled && !state.isSearchOrigin) {
-                item {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text("Ações", style = MaterialTheme.typography.titleMedium)
-                }
-                item {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        if (state.latestVersion != state.currentVersion && state.latestVersion.isNotBlank()) {
-                            OutlinedButton(onClick = { viewModel.skipVersion() },
-                                colors = ButtonDefaults.outlinedButtonColors(
-                                    contentColor = MaterialTheme.colorScheme.outline
-                                )) {
-                                Icon(Icons.Default.Block, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("Pular ${state.latestVersion}")
-                            }
-                        }
-                        OutlinedButton(onClick = { viewModel.hideApp() },
-                            colors = ButtonDefaults.outlinedButtonColors(
-                                contentColor = MaterialTheme.colorScheme.error
-                            )) {
-                            Icon(Icons.Default.VisibilityOff, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Ocultar app")
-                        }
-                        OutlinedButton(onClick = { viewModel.recheck() }) {
-                            if (state.isChecking) {
-                                CircularProgressIndicator(modifier = Modifier.size(16.dp))
-                            } else {
-                                Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
-                            }
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Verificar novamente")
-                        }
-                    }
-                }
-            }
+
 
             // Search-origin download button (only when no hits array — legacy single-source)
             if (state.isSearchOrigin && state.searchSource != null && state.searchPageUrl != null && state.searchHits.isEmpty()) {
@@ -594,7 +650,7 @@ fun AppDetailScreen(
                                 Button(onClick = {
                                     val version = state.latestVersion.ifBlank { state.currentVersion }
                                     viewModel.downloadFromSource(
-                                        state.searchSource!!, state.searchPageUrl!!, state.appName, version
+                                        state.searchSource!!, state.searchPageUrl!!, state.appName, version, dlKey
                                     ) { key, appName, ver, url ->
                                         onDownloadViaWebView(key, appName, ver, url)
                                     }
@@ -631,6 +687,8 @@ private fun VersionHistoryCard(
     version: String,
     subtitle: String,
     isInstalled: Boolean,
+    isSkipped: Boolean = false,
+    onSkipVersion: (() -> Unit)? = null,
     downloadKey: String,
     download: com.hyperos.updater.domain.ActiveDownload?,
     onDownload: () -> Unit,
@@ -643,7 +701,12 @@ private fun VersionHistoryCard(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(modifier = Modifier.weight(1f)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(version, style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            version,
+                            style = MaterialTheme.typography.bodyMedium,
+                            textDecoration = if (isSkipped) androidx.compose.ui.text.style.TextDecoration.LineThrough else null,
+                            color = if (isSkipped) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface
+                        )
                         if (isInstalled) {
                             Spacer(modifier = Modifier.width(6.dp))
                             Surface(
@@ -656,9 +719,28 @@ private fun VersionHistoryCard(
                                     color = MaterialTheme.colorScheme.primary)
                             }
                         }
+                        if (isSkipped) {
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Surface(
+                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f),
+                                shape = MaterialTheme.shapes.extraSmall
+                            ) {
+                                Text("ignorada",
+                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.outline)
+                            }
+                        }
                     }
                     Text(subtitle, style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                if (onSkipVersion != null && !isInstalled && !isSkipped) {
+                    IconButton(onClick = onSkipVersion) {
+                        Icon(Icons.Default.Block, contentDescription = "Ignorar versão",
+                            modifier = Modifier.size(20.dp),
+                            tint = MaterialTheme.colorScheme.outline)
+                    }
                 }
                 if (!isInstalled) {
                     when {

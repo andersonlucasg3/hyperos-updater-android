@@ -98,6 +98,7 @@ data class AppDetailUiState(
 
     // Actions
     val isHidingApp: Boolean = false,
+    val skippedVersions: Set<String> = emptySet(),
 
     // Search-origin mode
     val isSearchOrigin: Boolean = false,
@@ -130,6 +131,14 @@ class AppDetailViewModel @Inject constructor(
 
     private val _hideDone = MutableStateFlow(false)
     val hideDone: StateFlow<Boolean> = _hideDone.asStateFlow()
+
+    init {
+        viewModelScope.launch {
+            preferencesRepository.skippedVersions.collect { skipped ->
+                _state.update { it.copy(skippedVersions = skipped) }
+            }
+        }
+    }
 
     // ── Load ──────────────────────────────────────────────────────────────────
 
@@ -434,6 +443,13 @@ class AppDetailViewModel @Inject constructor(
         }
     }
 
+    fun skipSpecificVersion(version: String) {
+        val s = _state.value
+        viewModelScope.launch {
+            preferencesRepository.skipVersion(s.packageName, version)
+        }
+    }
+
     fun hideApp() {
         val s = _state.value
         _state.update { it.copy(isHidingApp = true) }
@@ -461,9 +477,9 @@ class AppDetailViewModel @Inject constructor(
         downloadUrl: String?,
         appName: String,
         version: String,
+        key: String,
         pendingLauncher: (String, String, String, String) -> Unit
     ) {
-        val key = source.name + appName
         if (downloadManager.installCached(key, appName)) return
 
         val url = downloadUrl ?: return
