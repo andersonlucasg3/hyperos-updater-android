@@ -93,6 +93,46 @@ Para cada app instalado:
   AppUpdate com sourceVersions completo (todas as fontes com versão mais nova)
 ```
 
+## Busca Agregada Multi-Fonte (Find & Install)
+
+A busca na aba "Find & Install" agrega resultados de 6 fontes em paralelo e os agrupa por nome de app normalizado:
+
+```
+AppSearchViewModel.search(query):
+  supervisorScope + async (6 fontes em paralelo)
+    APKMirror → searchByName  (WordPress ?s=&post_type=app_release)
+    APKPure   → searchByName  (.first + #search-res li, Referer+Origin)
+    APKCombo  → search        (apenas package-name, !query.contains("."))
+    Aptoide   → searchByName  (API v7 /api/7/apps/search)
+    MemeOS    → searchByName  (apenas apps Xiaomi, vazio é esperado)
+    Uptodown  → searchByName  (NÃO FUNCIONAL — 404/410, sempre vazio)
+  ↓
+  FlatResult por fonte (appName, versionName, source, downloadPageUrl, devName, iconUrl)
+  ↓
+  group(): agrupa por normalize(appName) — exact match (lowercase + strip non-alphanum)
+  ↓
+  AppSearchResult(appName, iconUrl, devName, hits: List<SourceHit>, displayVersion, bestSource)
+```
+
+### Agrupamento e Dedup
+
+- **`normalize(name)`:** lowercase, trim, remove tudo que não for `[a-z0-9]`. Sem fuzzy — apenas exact match.
+- **Dedup:** `distinctBy { downloadPageUrl }` — cada URL de página aparece apenas uma vez no flat list.
+- **`displayVersion`:** `pickBestVersion()` usa `VersionComparator.isNewer()` sobre todas as `versionName` não-nulas do grupo.
+- **`bestSource`:** prioridade fixa: APTOIDE > MEMEOS > GITHUB > FDROID > TENCENT. Primeira fonte da lista que aparece no grupo. Fallback: primeira do grupo.
+
+### Emissão Incremental
+
+Resultados são emitidos incrementalmente conforme cada fonte completa — não espera todas as fontes. Cada `async` block atualiza `_state` imediatamente após `await()`, desde que o `searchId` não tenha mudado (race guard).
+
+### Card UI
+
+Cada card mostra: `UrlAppIcon` (Coil), nome do app, `displayVersion`, linha de `SourceBadge` para TODAS as fontes do grupo, nome do dev (se disponível). Quick-download (ícone ⬇) usa `bestSource` com as mesmas regras de roteamento das abas: APTOIDE direto, MEMEOS resolve-direct/WebView fallback, APKMIRROR/APKCOMBO/UPTODOWN → WebView. Botão info (ⓘ) abre `AppDetailActivity` com `EXTRA_SEARCH_HITS` serializado.
+
+### Detail Page (Search Origin)
+
+A detail page no modo search-origin recebe `EXTRA_SEARCH_HITS` como `ArrayList<String>` de entradas pipe-encoded (`SOURCE|VERSION|URL`). O parser em `AppDetailActivity.onCreate()` decodifica cada entrada para `SourceHit`. A tela renderiza "Versões por Fonte" com um card por hit — cada um com SourceBadge, versão, URL da página, e botão de download com roteamento apropriado. O status "Status da Versão" mostra "Disponível" quando o app não está instalado (comparado com `PackageInfo` se `packageName` disponível).
+
 ### Per-App Recheck (Re-verificação individual)
 
 Cada card na UpdatesTab tem um botão Refresh que re-verifica **apenas aquele app**, sem disparar um scan completo:
@@ -148,7 +188,7 @@ Diferente da barra indeterminada genérica, o scan mostra progresso determinado 
 
 ## Endpoints de Histórico de Versões (App Detail Page)
 
-A página de detalhes (`AppDetailActivity`) carrega histórico completo de versões de fontes que oferecem endpoints dedicados:
+A página de detalhes (`AppDetailActivity`) carrega histórico completo de versões de fontes que oferecem endpoints dedicados. **A partir da v1.1.1, o histórico é carregado INCONDICIONALMENTE** — não mais restrito a fontes presentes em `sourceVersions`. O `sourceVersions` contém apenas fontes com versão MAIS NOVA que a instalada, então apps atualizados ficavam sem histórico. Agora `loadHistory()` sempre dispara para MemeOS, F-Droid, GitHub e APKMirror, independentemente do status de update. Cada fonte falha em soft; packages desconhecidos retornam grupos vazios (sem erro).
 
 | Fonte | Método | Endpoint | Retorno |
 |-------|--------|----------|---------|
@@ -158,7 +198,7 @@ A página de detalhes (`AppDetailActivity`) carrega histórico completo de vers�
 | **APKMirror** | `getRecentVersions(appName)` | RSS feed via `searchByName` → slug → `fetchAppFeed` | Versões recentes: version, pageUrl (download via WebView). |
 | **APKPure/APKCombo/Aptoide/Uptodown/Tencent** | — | — | Apenas latest + link "abrir página de versões". |
 
-O carregamento é fail-soft por fonte — falha em uma fonte não bloqueia as demais. O histórico só é carregado para fontes presentes em `sourceVersions`. No modo search-origin, apenas APKMirror (RSS via slug extraído da page URL) e MemeOS (package-name extraído da page URL) tentam carregar histórico.
+O carregamento é fail-soft por fonte — falha em uma fonte não bloqueia as demais. O histórico é carregado para TODOS os apps instalados (não mais gateado por `sourceVersions`). No modo search-origin, apenas APKMirror (RSS via slug extraído da page URL) e MemeOS (package-name extraído da page URL) tentam carregar histórico.
 
 ## Arquivos Relevantes
 
@@ -173,6 +213,8 @@ O carregamento é fail-soft por fonte — falha em uma fonte não bloqueia as de
 - [data/repository/AppUpdateRepositoryImpl.kt](../app/src/main/java/com/hyperos/updater/data/repository/AppUpdateRepositoryImpl.kt) — Lógica de verificação (8 fontes, pickBest, checkOneSystemApp, checkOneThirdPartyApp, recheckApp)
 - [util/VersionComparator.kt](../app/src/main/java/com/hyperos/updater/util/VersionComparator.kt) — Comparação de versões (isNewer + compare)
 - [ui/screens/apps/AppUpdatesViewModel.kt](../app/src/main/java/com/hyperos/updater/ui/screens/apps/AppUpdatesViewModel.kt) — ViewModel (checkAllApps, recheckApp, checkingApps)
-- [ui/screens/detail/AppDetailActivity.kt](../app/src/main/java/com/hyperos/updater/ui/screens/detail/AppDetailActivity.kt) — Activity standalone (modos: installed-app e search-origin)
-- [ui/screens/detail/AppDetailViewModel.kt](../app/src/main/java/com/hyperos/updater/ui/screens/detail/AppDetailViewModel.kt) — ViewModel (loadInstalled, loadSearchOrigin, recheck, downloadFromSource, skipVersion, hideApp, history loading)
+- [ui/screens/search/AppSearchViewModel.kt](../app/src/main/java/com/hyperos/updater/ui/screens/search/AppSearchViewModel.kt) — ViewModel de busca agregada (search, group, pickBestVersion, pickBestSource)
+- [ui/screens/search/AppSearchScreen.kt](../app/src/main/java/com/hyperos/updater/ui/screens/search/AppSearchScreen.kt) — Tela de busca com cards agregados + detail navigation
+- [ui/screens/detail/AppDetailActivity.kt](../app/src/main/java/com/hyperos/updater/ui/screens/detail/AppDetailActivity.kt) — Activity standalone (modos: installed-app e search-origin; parse de EXTRA_SEARCH_HITS)
+- [ui/screens/detail/AppDetailViewModel.kt](../app/src/main/java/com/hyperos/updater/ui/screens/detail/AppDetailViewModel.kt) — ViewModel (loadInstalled, loadSearchOrigin, recheck, downloadFromSource, skipVersion, hideApp, history loading incondicional)
 - [ui/screens/detail/AppDetailScreen.kt](../app/src/main/java/com/hyperos/updater/ui/screens/detail/AppDetailScreen.kt) — Tela de detalhes (header, status, sourceVersions, history groups, ações)

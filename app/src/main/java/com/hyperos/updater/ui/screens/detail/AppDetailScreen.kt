@@ -181,7 +181,96 @@ fun AppDetailScreen(
                 }
             }
 
-            // ── Versões por fonte ──────────────────────────────────────────
+            // ── Versões por fonte (search-origin: all hits) ──────────────────
+            if (state.isSearchOrigin && state.searchHits.isNotEmpty()) {
+                item {
+                    Text("Versões por Fonte", style = MaterialTheme.typography.titleMedium)
+                }
+                items(state.searchHits) { hit ->
+                    val hitKey = hit.source.name + state.appName
+                    val hitDl = downloads[hitKey]
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                SourceBadge(hit.source)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    if (hit.versionName != null) {
+                                        Text(hit.versionName, style = MaterialTheme.typography.bodyMedium)
+                                    }
+                                    Text(hit.downloadPageUrl, style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1)
+                                }
+                                if (hitDl != null && hitDl.progress.status.isOngoing()) {
+                                    Text("${hitDl.progress.progress}%",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.primary)
+                                } else if (hitDl?.progress?.status == DownloadStatus.COMPLETED) {
+                                    Icon(Icons.Default.CheckCircle, contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                                } else if (hitDl?.progress?.status == DownloadStatus.ERROR) {
+                                    IconButton(onClick = { viewModel.downloadManager.dismissDownload(hitKey) }) {
+                                        Icon(Icons.Default.Error, contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(20.dp))
+                                    }
+                                } else if (hitDl?.progress?.status == DownloadStatus.AWAITING_INSTALL) {
+                                    IconButton(onClick = { viewModel.downloadManager.retryInstall(hitKey) }) {
+                                        Icon(Icons.Default.InstallMobile, contentDescription = "Instalar",
+                                            tint = MaterialTheme.colorScheme.primary)
+                                    }
+                                } else {
+                                    IconButton(onClick = {
+                                        viewModel.downloadFromSource(
+                                            hit.source, hit.downloadPageUrl, state.appName,
+                                            hit.versionName ?: state.latestVersion
+                                        ) { key, appName, version, url ->
+                                            onDownloadViaWebView(key, appName, version, url)
+                                        }
+                                    }) {
+                                        Icon(Icons.Default.Download, contentDescription = "Baixar",
+                                            modifier = Modifier.size(20.dp))
+                                    }
+                                }
+                            }
+                            // Inline download progress
+                            if (hitDl != null && hitDl.progress.status.isOngoing()) {
+                                if (hitDl.progress.status == DownloadStatus.INSTALLING) {
+                                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp))
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text("Instalando...", style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.padding(horizontal = 12.dp))
+                                } else {
+                                    LinearProgressIndicator(
+                                        progress = { if (hitDl.progress.totalBytes > 0) hitDl.progress.bytesDownloaded.toFloat() / hitDl.progress.totalBytes else 0f },
+                                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp)
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween) {
+                                        Text("${hitDl.progress.progress}%", style = MaterialTheme.typography.labelSmall)
+                                        Text(hitDl.progress.bytesDownloaded.toHumanReadableSize(), style = MaterialTheme.typography.labelSmall)
+                                    }
+                                }
+                                Spacer(modifier = Modifier.height(4.dp))
+                            }
+                            if (hitDl?.progress?.status == DownloadStatus.ERROR && hitDl.progress.errorMessage != null) {
+                                Text("Erro: ${hitDl.progress.errorMessage}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.padding(horizontal = 12.dp))
+                                Spacer(modifier = Modifier.height(4.dp))
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ── Versões por fonte (installed app) ─────────────────────────────
             if (state.sourceVersions.isNotEmpty()) {
                 item {
                     Text("Versões por Fonte", style = MaterialTheme.typography.titleMedium)
@@ -465,8 +554,8 @@ fun AppDetailScreen(
                 }
             }
 
-            // Search-origin download button
-            if (state.isSearchOrigin && state.searchSource != null && state.searchPageUrl != null) {
+            // Search-origin download button (only when no hits array — legacy single-source)
+            if (state.isSearchOrigin && state.searchSource != null && state.searchPageUrl != null && state.searchHits.isEmpty()) {
                 item {
                     Spacer(modifier = Modifier.height(8.dp))
                     val dlKey = state.searchSource!!.name + state.appName

@@ -48,6 +48,17 @@ Use `d.apkpure.com/b/APK/{pkg}?version=latest` with HEAD, `followRedirects(false
 - `User-Agent: Mozilla/5.0 ... Mobile Safari/537.36`
 Parse version from 302 `Location` header's `filename=` parameter.
 
+### APKPure Search Selectors
+Search page selectors updated to `.first` (featured result) + `#search-res li` (list items). Both require `Referer: https://apkpure.com/` and `Origin: https://apkpure.com` headers. Version extracted from `data-dt-version` attribute (featured) or `.version`/`.p2` text (list). `searchByName()` aggregates both into `List<SearchItem>`.
+
+### Aggregated Multi-Source Search
+`AppSearchViewModel.kt` groups flat results by normalized app name (exact match: lowercase, strip non-alphanumeric) into `AppSearchResult(appName, iconUrl, devName, hits: List<SourceHit>, displayVersion, bestSource)`. Cards show all source badges (one per `SourceHit`). Quick-download uses `bestSource` with priority: APTOIDE > MEMEOS > GITHUB > FDROID > TENCENT. Detail page receives `EXTRA_SEARCH_HITS` (pipe-joined `SOURCE|VERSION|URL`) and renders "Versões por Fonte" for search origin — every hit gets its own download row with appropriate routing.
+
+Results are emitted incrementally as each source completes (not all-at-once), with `distinctBy { downloadPageUrl }` dedup. Each source fails soft — empty lists on error.
+
+### App Detail — History Loads Unconditionally (v1.1.1)
+`loadHistory()` is called for ALL installed apps, not just those with `sourceVersions`. The old code gated on `sourceVersions`, which only contains sources with a NEWER version — up-to-date apps got an empty history page. Now history always loads for MemeOS, F-Droid, GitHub, and APKMirror regardless of update status. Each source fails soft; unknown packages yield empty groups (no error shown).
+
 ### APKMirror Search
 Use WordPress search: `?s={query}&post_type=app_release` (NOT `?searchtype=apk&search=`).
 User-Agent: `APKUpdater-v3.0.3`.
@@ -129,6 +140,8 @@ History loading is fail-soft per source — one failure does not block others. L
 ### APKCombo Always-WebView Rule
 APKCombo NEVER downloads directly — `ApkComboResult.downloadUrl` = `<appPage>/download/apk`, a real page that 403s via plain OkHttp (Cloudflare) but works in WebView. All download paths (SearchTab, AppSearchScreen, UpdatesTab sourceVersions) route APKCOMBO into the WebView branch. `AppUpdatesViewModel.getSourcePageUrl` uses `sourceDownloadUrl` directly for APKCOMBO (no bogus search URL fallback). `AppSearchViewModel.downloadFromPage` has no explicit APKCOMBO branch (falls to `else → result.downloadPageUrl`) — no double-append of `/download/apk`.
 
+**APKCombo name-search impossible:** The search endpoint `apkcombo.com/search/<query>` returns HTTP 403 (Cloudflare) for non-package-name queries. The guard `!query.contains(".")` in `tryComboSearch()` skips name-only queries because they would 403 silently. APKCombo is effectively **package-name-only** for all operations.
+
 ### Xiaomi.eu OTA (OS Updates tab)
 SourceForge RSS `https://sourceforge.net/projects/xiaomi-eu-multilang-miui-roms/rss?path=/xiaomi.eu/HyperOS-STABLE-RELEASES/HyperOS3.0/`. XmlPullParser, filter by `_{CODENAME}_` in title. Version from filename regex `_OS(\d+)\.(\d+)\.(\d+)\.(\d+)_` → `OS{major}.{minor}.{patch}.{build}`. **Numeric-only compare:** `extractNumericParts()` extracts up to 4 leading numeric components; `isNumericNewer()` does lexicographic comparison on the 4-tuple. Explicitly does NOT use `VersionComparator` line-gate — xiaomi.eu suffixes differ from stock (they rebase China ROMs), but the 4 numeric components alone determine update-worthiness. ROM download is native OkHttp (SourceForge link 302→mirror), saved to Downloads/HyperOSUpdater, NO install step, NO WebView. Manual check only — OtaCheckWorker NOT scheduled.
 
@@ -158,7 +171,8 @@ MEMEOS provides direct signed URLs via `MemeOsService.resolveDirectDownloadUrl()
 ## Known Issues
 - OTA code still exists but is unwired from v1 (OTA tab removed, `ota_check` worker cancelled in `WorkerScheduler`)
 - Xiaomi GetApps (`app.market.xiaomi.com/apm/app`) evaluated and NOT added — requires undisclosed params/signing (HTTP 400 "参数不能为空"); would need MITM reverse engineering
-- APKCombo: download page works in WebView but 403s via plain OkHttp — always routed through WebView (see Critical Discoveries)
+- APKCombo: download page works in WebView but 403s via plain OkHttp — always routed through WebView (see Critical Discoveries); **name-search impossible** — `apkcombo.com/search/<name>` returns Cloudflare 403, package-name only
 - `d.apkpure.com` returns 403 without proper Referer/Origin headers
-- Uptodown has no reliable package-name→URL mapping — search-based only, best-effort
+- Uptodown: no reliable package-name→URL mapping; **search endpoint DEAD** — all known URL patterns (`/android/search/<q>`, `/search?q=<q>`, `/android/buscar/<q>`) return HTTP 404/410; the site appears to have removed/relocated its search feature; service code kept intact but non-functional for search
+- MemeOS search returns empty for non-Xiaomi names — expected, catalog is Xiaomi system apps only
 - Root install via su may hang at Magisk grant prompt (120s timeout mitigates this)

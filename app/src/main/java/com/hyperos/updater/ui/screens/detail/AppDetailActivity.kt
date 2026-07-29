@@ -22,6 +22,8 @@ class AppDetailActivity : ComponentActivity() {
         const val EXTRA_SEARCH_SOURCE = "searchSource"
         const val EXTRA_SEARCH_PAGE_URL = "searchPageUrl"
         const val EXTRA_SEARCH_ICON_URL = "searchIconUrl"
+        /** Pipe-separated hits: each entry is "SOURCE|VERSION|URL". */
+        const val EXTRA_SEARCH_HITS = "searchHits"
     }
 
     private val viewModel: AppDetailViewModel by viewModels()
@@ -44,6 +46,20 @@ class AppDetailActivity : ComponentActivity() {
         val searchSource = try { UpdateSource.valueOf(searchSourceStr ?: "") } catch (_: Exception) { null }
         val searchPageUrl = intent.getStringExtra(EXTRA_SEARCH_PAGE_URL)
         val searchIconUrl = intent.getStringExtra(EXTRA_SEARCH_ICON_URL)
+
+        // Parse serialized search hits: "SOURCE|VERSION|URL" per entry
+        val searchHitsRaw = intent.getStringArrayListExtra(EXTRA_SEARCH_HITS)
+        val searchHits = searchHitsRaw?.mapNotNull { entry ->
+            val parts = entry.split("|", limit = 3)
+            if (parts.size < 3) return@mapNotNull null
+            val src = try { UpdateSource.valueOf(parts[0]) } catch (_: Exception) { return@mapNotNull null }
+            com.hyperos.updater.ui.screens.search.SourceHit(
+                source = src,
+                versionName = parts[1].ifBlank { null },
+                downloadPageUrl = parts[2],
+                iconUrl = null
+            )
+        } ?: emptyList()
 
         val isSearchOrigin = searchName != null && searchSource != null
 
@@ -89,7 +105,7 @@ class AppDetailActivity : ComponentActivity() {
 
         // Load data
         if (isSearchOrigin) {
-            viewModel.loadSearchOrigin(packageName, searchName!!, searchVersion, searchSource!!, searchPageUrl, searchIconUrl)
+            viewModel.loadSearchOrigin(packageName, searchName!!, searchVersion, searchSource!!, searchPageUrl, searchIconUrl, searchHits)
         } else if (packageName != null && appType != null) {
             viewModel.loadInstalled(packageName, appType)
         } else {

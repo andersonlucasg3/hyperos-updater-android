@@ -103,6 +103,7 @@ data class AppDetailUiState(
     val isSearchOrigin: Boolean = false,
     val searchSource: UpdateSource? = null,
     val searchPageUrl: String? = null,
+    val searchHits: List<com.hyperos.updater.ui.screens.search.SourceHit> = emptyList(),
 
     val error: String? = null
 )
@@ -200,7 +201,8 @@ class AppDetailViewModel @Inject constructor(
         versionName: String?,
         source: UpdateSource,
         pageUrl: String?,
-        iconUrl: String?
+        iconUrl: String?,
+        searchHits: List<com.hyperos.updater.ui.screens.search.SourceHit> = emptyList()
     ) {
         _state.update {
             it.copy(
@@ -213,6 +215,7 @@ class AppDetailViewModel @Inject constructor(
                 isSearchOrigin = true,
                 searchSource = source,
                 searchPageUrl = pageUrl,
+                searchHits = searchHits,
                 isInstalled = false
             )
         }

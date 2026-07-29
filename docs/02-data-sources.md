@@ -16,16 +16,17 @@
 ## App Updates
 
 ### APKPure
-- **Search:** `GET https://apkpure.com/search?q={packageName}`
+- **Search:** `GET https://apkpure.com/search?q={packageName}` com headers `Referer` + `Origin`
+- **Search selectors:** `.first` (featured result, atributo `data-dt-version`) + `#search-res li` (list items, classe `.version`/`.p2`); ambos exigem `Referer: https://apkpure.com/` e `Origin: https://apkpure.com`
 - **CDN Download:** `https://d.apkpure.com/b/APK/{packageName}?version=latest`
 - **Parsing:** Jsoup HTML scraping
 - **Issues:** Returns 403 for system packages. Search by name is JS-rendered.
 
 ### APKCombo
-- **Search:** `GET https://apkcombo.com/search/{packageName}`
+- **Search:** `GET https://apkcombo.com/search/{packageName}` — **apenas package-name** (busca por nome retorna HTTP 403 Cloudflare; o guard `!query.contains(".")` em `tryComboSearch()` impede queries só com nome)
 - **Parsing:** Jsoup HTML scraping, JSON-LD `softwareVersion`
 - **downloadUrl semantics:** `ApkComboResult.downloadUrl` = `<appPage>/download/apk` — this is a **real page** (not a direct APK URL). It 403s via plain OkHttp (Cloudflare protection) but works in the assisted WebView. APKCombo is **never** downloaded directly; all download paths route it through `DownloadActivity`.
-- **Issues:** No direct APK URL available. Always requires WebView.
+- **Issues:** No direct APK URL available. Always requires WebView. Name-search impossible — Cloudflare 403.
 
 ### APKMirror
 - **Search by name:** `GET https://www.apkmirror.com/?s={query}&post_type=app_release`
@@ -53,10 +54,10 @@
 - **Issues:** Limited to mapped repos. Rate-limited without token.
 
 ### Uptodown (best-effort)
-- **Search:** `GET https://www.uptodown.com/android/search/{query}`
+- **Search:** `GET https://www.uptodown.com/android/search/{query}` — **NÃO FUNCIONAL** (todos os padrões de URL conhecidos retornam HTTP 404/410; o site parece ter removido/relocado a feature de busca)
 - **Parsing:** Jsoup HTML scraping (multiple selector strategies)
 - **Version extraction:** JSON-LD structured data → CSS selectors → regex fallback
-- **Issues:** No reliable package-name→URL mapping. Search uses last segment of package name as query. Results are inherently unreliable. NOT eligible for auto-update.
+- **Issues:** No reliable package-name→URL mapping. Search uses last segment of package name as query. Results are inherently unreliable. NOT eligible for auto-update. **Search endpoint is dead** — service code kept intact for when a working URL is discovered; currently `tryUptodownSearch()` always returns empty list.
 
 ### Tencent MyApp (应用宝)
 - **Version check:** `GET https://a.app.sj.qq.com/o/simple.jsp?pkgname={pkg}`

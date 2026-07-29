@@ -86,8 +86,9 @@ fun SearchTab(
             }
 
             LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(state.results, key = { it.source.name + it.downloadPageUrl }) { result ->
-                    val dlKey = result.source.name + result.appName
+                items(state.results, key = { "grp_" + it.hits.joinToString("|") { it.source.name + it.downloadPageUrl } }) { result ->
+                    val bestHit = result.hits.firstOrNull { it.source == result.bestSource }
+                    val dlKey = (bestHit?.source?.name ?: result.bestSource.name) + result.appName
                     val dl = downloads[dlKey]
 
                     Card(modifier = Modifier.fillMaxWidth()) {
@@ -99,27 +100,24 @@ fun SearchTab(
                             }
                             Row(horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f).clickable {
-                                    val intent = Intent(context, com.hyperos.updater.ui.screens.detail.AppDetailActivity::class.java)
-                                    intent.putExtra(com.hyperos.updater.ui.screens.detail.AppDetailActivity.EXTRA_SEARCH_NAME, result.appName)
-                                    result.versionName?.let { intent.putExtra(com.hyperos.updater.ui.screens.detail.AppDetailActivity.EXTRA_SEARCH_VERSION, it) }
-                                    intent.putExtra(com.hyperos.updater.ui.screens.detail.AppDetailActivity.EXTRA_SEARCH_SOURCE, result.source.name)
-                                    intent.putExtra(com.hyperos.updater.ui.screens.detail.AppDetailActivity.EXTRA_SEARCH_PAGE_URL, result.downloadPageUrl)
-                                    result.iconUrl?.let { intent.putExtra(com.hyperos.updater.ui.screens.detail.AppDetailActivity.EXTRA_SEARCH_ICON_URL, it) }
-                                    context.startActivity(intent)
+                                    openDetail(context, result)
                                 }) {
                                     com.hyperos.updater.ui.components.UrlAppIcon(result.iconUrl)
                                     Spacer(modifier = Modifier.width(12.dp))
                                     Column {
                                         Text(result.appName, style = MaterialTheme.typography.titleMedium)
-                                        if (result.versionName != null) Text("v${result.versionName}", style = MaterialTheme.typography.bodySmall)
-                                        Row {
-                                            SourceBadge(result.source)
-                                            if (!result.devName.isNullOrBlank()) {
-                                                Spacer(modifier = Modifier.width(4.dp))
-                                                Text(result.devName, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        if (result.displayVersion != null)
+                                            Text("v${result.displayVersion}", style = MaterialTheme.typography.bodySmall)
+                                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                            result.hits.forEach { hit ->
+                                                SourceBadge(hit.source)
                                             }
+                                        }
+                                        if (!result.devName.isNullOrBlank()) {
+                                            Text(result.devName, style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
                                     }
-                                }
                                 }
 
                                 if (dl != null) {
@@ -149,42 +147,45 @@ fun SearchTab(
                                 } else {
                                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                         IconButton(onClick = {
-                                            if (result.source == UpdateSource.APKMIRROR || result.source == UpdateSource.MEMEOS || result.source == UpdateSource.UPTODOWN || result.source == UpdateSource.APKCOMBO) {
-                                                if (viewModel.downloadManager.installCached(dlKey, result.appName)) return@IconButton
+                                            val source = result.bestSource
+                                            val pageUrl = bestHit?.downloadPageUrl ?: return@IconButton
+                                            val key = source.name + result.appName
+                                            if (source == UpdateSource.APKMIRROR || source == UpdateSource.MEMEOS || source == UpdateSource.UPTODOWN || source == UpdateSource.APKCOMBO) {
+                                                if (viewModel.downloadManager.installCached(key, result.appName)) return@IconButton
                                                 // MEMEOS: try direct resolution first, fall back to WebView
-                                                if (result.source == UpdateSource.MEMEOS) {
+                                                if (source == UpdateSource.MEMEOS) {
                                                     scope.launch {
-                                                        val directUrl = viewModel.resolveMemeOsDirectDownload(result.downloadPageUrl)
+                                                        val directUrl = viewModel.resolveMemeOsDirectDownload(pageUrl)
                                                         if (directUrl != null) {
-                                                            viewModel.downloadFromUrl(directUrl, dlKey, result.appName, version = result.versionName)
+                                                            viewModel.downloadFromUrl(directUrl, key, result.appName, version = bestHit.versionName)
                                                             return@launch
                                                         }
-                                                        // Fall back to WebView
-                                                        pendingKey = dlKey
+                                                        pendingKey = key
                                                         pendingAppName = result.appName
-                                                        pendingVersion = result.versionName
+                                                        pendingVersion = bestHit.versionName
                                                         val intent = Intent(context, com.hyperos.updater.ui.DownloadActivity::class.java)
-                                                        intent.putExtra(com.hyperos.updater.ui.DownloadActivity.EXTRA_URL, result.downloadPageUrl)
+                                                        intent.putExtra(com.hyperos.updater.ui.DownloadActivity.EXTRA_URL, pageUrl)
                                                         intent.putExtra(com.hyperos.updater.ui.DownloadActivity.EXTRA_APP_NAME, result.appName)
                                                         downloadLauncher.launch(intent)
                                                     }
                                                     return@IconButton
                                                 }
-                                                // UPTODOWN: open page in WebView — no URL transformation needed
-                                                if (result.source == UpdateSource.UPTODOWN || result.source == UpdateSource.APKCOMBO) {
-                                                    pendingKey = dlKey
+                                                // UPTODOWN / APKCOMBO: open page in WebView
+                                                if (source == UpdateSource.UPTODOWN || source == UpdateSource.APKCOMBO) {
+                                                    pendingKey = key
                                                     pendingAppName = result.appName
-                                                    pendingVersion = result.versionName
+                                                    pendingVersion = bestHit.versionName
                                                     val intent = Intent(context, com.hyperos.updater.ui.DownloadActivity::class.java)
-                                                    intent.putExtra(com.hyperos.updater.ui.DownloadActivity.EXTRA_URL, result.downloadPageUrl)
+                                                    intent.putExtra(com.hyperos.updater.ui.DownloadActivity.EXTRA_URL, pageUrl)
                                                     intent.putExtra(com.hyperos.updater.ui.DownloadActivity.EXTRA_APP_NAME, result.appName)
                                                     downloadLauncher.launch(intent)
                                                     return@IconButton
                                                 }
-                                                pendingKey = dlKey
+                                                // APKMIRROR: build download page URL
+                                                pendingKey = key
                                                 pendingAppName = result.appName
-                                                pendingVersion = result.versionName
-                                                val base = result.downloadPageUrl.trimEnd('/')
+                                                pendingVersion = bestHit.versionName
+                                                val base = pageUrl.trimEnd('/')
                                                 val slug = base.split("/").last { it.isNotBlank() }
                                                 val dlUrl = "$base/${slug.replace("-release", "-android-apk-download")}/"
                                                 val intent = Intent(context, com.hyperos.updater.ui.DownloadActivity::class.java)
@@ -192,20 +193,12 @@ fun SearchTab(
                                                 intent.putExtra(com.hyperos.updater.ui.DownloadActivity.EXTRA_APP_NAME, result.appName)
                                                 downloadLauncher.launch(intent)
                                             } else {
-                                                viewModel.downloadFromPage(result)
+                                                viewModel.downloadFromResult(result)
                                             }
                                         }) {
                                             Icon(Icons.Default.Download, contentDescription = "Download")
                                         }
-                                        IconButton(onClick = {
-                                            val intent = Intent(context, com.hyperos.updater.ui.screens.detail.AppDetailActivity::class.java)
-                                            intent.putExtra(com.hyperos.updater.ui.screens.detail.AppDetailActivity.EXTRA_SEARCH_NAME, result.appName)
-                                            result.versionName?.let { intent.putExtra(com.hyperos.updater.ui.screens.detail.AppDetailActivity.EXTRA_SEARCH_VERSION, it) }
-                                            intent.putExtra(com.hyperos.updater.ui.screens.detail.AppDetailActivity.EXTRA_SEARCH_SOURCE, result.source.name)
-                                            intent.putExtra(com.hyperos.updater.ui.screens.detail.AppDetailActivity.EXTRA_SEARCH_PAGE_URL, result.downloadPageUrl)
-                                            result.iconUrl?.let { intent.putExtra(com.hyperos.updater.ui.screens.detail.AppDetailActivity.EXTRA_SEARCH_ICON_URL, it) }
-                                            context.startActivity(intent)
-                                        }) {
+                                        IconButton(onClick = { openDetail(context, result) }) {
                                             Icon(Icons.Default.Info, contentDescription = "Detalhes", modifier = Modifier.size(20.dp))
                                         }
                                     }
@@ -228,4 +221,20 @@ fun SearchTab(
             }
         }
     }
+}
+
+/** Serialize all hits and open the detail page for a grouped search result. */
+private fun openDetail(context: android.content.Context, result: AppSearchResult) {
+    val intent = Intent(context, com.hyperos.updater.ui.screens.detail.AppDetailActivity::class.java)
+    intent.putExtra(com.hyperos.updater.ui.screens.detail.AppDetailActivity.EXTRA_SEARCH_NAME, result.appName)
+    result.displayVersion?.let { intent.putExtra(com.hyperos.updater.ui.screens.detail.AppDetailActivity.EXTRA_SEARCH_VERSION, it) }
+    // Primary source is bestSource
+    intent.putExtra(com.hyperos.updater.ui.screens.detail.AppDetailActivity.EXTRA_SEARCH_SOURCE, result.bestSource.name)
+    result.iconUrl?.let { intent.putExtra(com.hyperos.updater.ui.screens.detail.AppDetailActivity.EXTRA_SEARCH_ICON_URL, it) }
+    // Serialize all hits as "SOURCE|VERSION|URL" entries
+    val hitsData = ArrayList(result.hits.map { hit ->
+        "${hit.source.name}|${hit.versionName ?: ""}|${hit.downloadPageUrl}"
+    })
+    intent.putStringArrayListExtra(com.hyperos.updater.ui.screens.detail.AppDetailActivity.EXTRA_SEARCH_HITS, hitsData)
+    context.startActivity(intent)
 }

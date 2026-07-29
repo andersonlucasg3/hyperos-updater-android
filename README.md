@@ -9,7 +9,7 @@ Android app for Xiaomi devices running HyperOS that manages app and system updat
 - **Root Install** — silent install via `su` with `-i com.android.vending` (simula Play Store), stdin pipe, 120s timeout
 - **9 Update Sources** — APKPure, APKCombo, Aptoide (API v7), F-Droid, APKMirror, GitHub, MemeOs, Uptodown, Tencent MyApp — consultadas em paralelo por app
 - **OS Updates** — aba OS Updates verifica xiaomi.eu ROMs via RSS do SourceForge; comparação numérica de 4 componentes (sem line-gate); download nativo (sem WebView), sem instalação automática
-- **Find & Install** — busca apps por nome em múltiplas fontes, download e instalação
+- **Find & Install** — busca agregada por nome em múltiplas fontes (APKMirror, APKPure, APKCombo, Aptoide, MemeOS, Uptodown); resultados agrupados por nome normalizado (exact match, sem fuzzy) com todos os source badges no card; quick-download usa bestSource (prioridade: APTOIDE > MEMEOS > GITHUB > FDROID > TENCENT); botão info (ⓘ) abre detail page com hits de todas as fontes
 - **MemeOS Direct Download** — bypass do countdown de 20s; URL assinada resolvida via 2 HTTP GETs (sem WebView)
 - **Assisted WebView Download** — navegação livre na página de download com captura passiva de URL + replay de headers
 - **Auto-Update** — toggle "Atualização automática" nas Settings; baixa e instala via Root apenas de fontes com URL direta (Aptoide, GitHub, F-Droid, MemeOS)
@@ -22,8 +22,8 @@ Android app for Xiaomi devices running HyperOS that manages app and system updat
 - **Filtros** — chip "Updatable" filtra apenas apps com atualização disponível (persistido em `updatable_filter_enabled`); chip "Sistema" controla exibição de apps de sistema (persistido em `show_system_apps`) e também ESCOPA o scan (desligado = apenas third-party)
 - **Scan UX** — progresso determinado "x de y" durante o scan; auto-scan roda apenas uma vez por abertura do app (`checkAllAppsIfNeeded`); troca de abas não reescaneia; botão manual de refresh inalterado
 - **Estado INSTALLING** — barra indeterminada + "Instalando..." nos cards (sem barra 0% que desaparecia); botão cancelar substituído por spinner durante a instalação
-- **App Detail Page** — página dedicada acessada pelo botão info (ⓘ) nos cards; cabeçalho (ícone, nome, package, versão/código instalados, instalador, badge sistema); status da versão com recheck automático; "Versões por Fonte" com download inline (mesmas regras de roteamento das abas: MEMEOS resolve-direct/WebView fallback, APTOIDE/GITHUB/FDROID/TENCENT direto, APKMIRROR/APKCOMBO/APKPURE/UPTODOWN WebView); "Histórico de versões" colapsável por fonte (MemeOS/F-Droid/GitHub/APKMirror com endpoints dedicados de histórico; demais fontes mostram latest + link "abrir página"); ações (Pular versão, Ocultar app, Verificar novamente); badge "instalada" na versão corrente
-- **Busca → Detail** — resultados de busca abrem a detail page com extras SEARCH_*; mostra info do resultado + botão de download; compara com versão instalada se disponível
+- **App Detail Page** — página dedicada acessada pelo botão info (ⓘ) nos cards; cabeçalho (ícone, nome, package, versão/código instalados, instalador, badge sistema); status da versão com recheck automático (ao abrir); search-origin sem app instalado mostra "Disponível" com versão e badge da fonte; "Versões por Fonte" com download inline: installed-app mostra sourceVersions (fontes com versão mais nova), search-origin mostra todos os searchHits agregados (pipe-encoded `EXTRA_SEARCH_HITS`); download roteado pelas mesmas regras das abas; "Histórico de versões" colapsável por fonte — CARREGADO INCONDICIONALMENTE (v1.1.1 fix: não mais restrito a sourceVersions; apps atualizados também recebem histórico); MemeOS `getAppHistory` full, F-Droid `getVersionHistory` todas, GitHub `getReleaseHistory`, APKMirror `getRecentVersions`; demais fontes (APKPure/APKCombo/Aptoide/Uptodown/Tencent) mostram latest + link "abrir página de versões"; ações (Pular versão, Ocultar app, Verificar novamente); badge "instalada" na versão corrente
+- **Busca → Detail** — resultados de busca abrem a detail page com `EXTRA_SEARCH_HITS` (pipe-joined `SOURCE|VERSION|URL`); "Versões por Fonte" renderiza todos os hits do agrupamento; download por fonte individual; compara com versão instalada se packageName disponível
 - **Material 3 UI** — dynamic color, dark mode, 3 abas (Find & Install, Updates, Settings)
 
 ## Architecture
@@ -81,9 +81,10 @@ See [docs/](docs/) for detailed documentation.
 ### Known Issues
 - **OTA:** código antigo não removido mas desligado do v1 (aba OTA removida, worker cancelado)
 - **Xiaomi GetApps:** avaliado e NÃO adicionado como fonte — `app.market.xiaomi.com/apm/app` retorna HTTP 400 "参数不能为空" (requer params/assinatura não documentados); precisaria de MITM reverse engineering
-- **APKCombo:** download via WebView assistido apenas (página `/download/apk` bloqueia OkHttp/Cloudflare, mas funciona no WebView)
+- **APKCombo:** download via WebView assistido apenas (página `/download/apk` bloqueia OkHttp/Cloudflare, mas funciona no WebView); busca por nome impossível (Cloudflare 403 — apenas package-name)
 - **APKPure:** retorna HTTP 403 para muitos pacotes de sistema
-- **Uptodown:** scraping best-effort, sem mapeamento confiável package→URL
+- **Uptodown:** scraping best-effort, sem mapeamento confiável package→URL; **busca por nome QUEBRADA** (todos os padrões de URL conhecidos retornam HTTP 404/410 — o site removeu/relocou a feature de busca); serviço mantido mas não funcional para search
+- **MemeOS:** busca retorna vazio para nomes não-Xiaomi (comportamento esperado — catálogo apenas de apps de sistema Xiaomi)
 
 ## License
 

@@ -55,19 +55,27 @@ class ApkPureService @Inject constructor(
             val request = Request.Builder()
                 .url(url)
                 .header("User-Agent", NetworkUtils.USER_AGENT)
+                .header("Referer", "https://apkpure.com/")
+                .header("Origin", "https://apkpure.com")
                 .build()
             val response = okHttpClient.newCall(request).execute()
             val html = response.body?.string() ?: return@withContext null
             val doc = Jsoup.parse(html)
 
-            val firstResult = doc.select(".search-results .apk").firstOrNull() ?: return@withContext null
-            val appName = firstResult.select(".title").firstOrNull()?.text() ?: return@withContext null
-            val versionText = firstResult.select(".version").firstOrNull()?.text() ?: ""
+            // Try featured result first (.first), then list items (#search-res li)
+            val firstResult = doc.select(".first, #search-res li").firstOrNull()
+                ?: return@withContext null
+            val appName = firstResult.select(".p1").firstOrNull()?.text()
+                ?: firstResult.select(".title, .name, h2, h3").firstOrNull()?.text()
+                ?: return@withContext null
+            // Version from data-dt-version attribute (featured) or empty for list
+            val versionText = firstResult.attr("data-dt-version")
+                .ifBlank { firstResult.select(".version, .p2").firstOrNull()?.text()?.filter { it.isDigit() || it == '.' } ?: "" }
             val versionCode = versionText.filter { it.isDigit() }.toLongOrNull() ?: 0L
 
-            val detailUrl = firstResult.select("a[href]").firstOrNull()?.attr("href")
+            val detailUrl = firstResult.select("a.dd, a[href]").firstOrNull()?.attr("href")
             val downloadUrl = if (detailUrl != null) {
-                "https://apkpure.com$detailUrl"
+                if (detailUrl.startsWith("http")) detailUrl else "https://apkpure.com$detailUrl"
             } else null
 
             ApkPureResult(appName, versionText, versionCode, downloadUrl, null)
@@ -88,22 +96,45 @@ class ApkPureService @Inject constructor(
             val request = Request.Builder()
                 .url(url)
                 .header("User-Agent", NetworkUtils.USER_AGENT)
+                .header("Referer", "https://apkpure.com/")
+                .header("Origin", "https://apkpure.com")
                 .build()
             val response = okHttpClient.newCall(request).execute()
             val html = response.body?.string() ?: return@withContext emptyList()
             val doc = Jsoup.parse(html)
 
-            doc.select(".search-results .apk, .apk-list .apk-item, .list .item, .first").mapNotNull { el ->
-                val link = el.select("a[href]").firstOrNull()?.attr("href") ?: return@mapNotNull null
-                val name = el.select(".title, .name, h2, h3").firstOrNull()?.text()
+            val results = mutableListOf<SearchItem>()
+
+            // 1. Featured result: .first element
+            doc.select(".first").forEach { el ->
+                val link = el.select("a[href]").firstOrNull()?.attr("href")
+                    ?: return@forEach
+                val name = el.select(".p1").firstOrNull()?.text()
+                    ?: el.select(".title, .name, h2, h3").firstOrNull()?.text()
                     ?: el.select("a").firstOrNull()?.text()
-                    ?: return@mapNotNull null
+                    ?: return@forEach
                 val pkg = link.removePrefix("/").split("/").lastOrNull()
                     ?.removeSuffix(".html")
                     ?: ""
-
-                SearchItem(appName = name, packageName = pkg, detailUrl = "https://apkpure.com$link")
+                results.add(SearchItem(appName = name, packageName = pkg,
+                    detailUrl = if (link.startsWith("http")) link else "https://apkpure.com$link"))
             }
+
+            // 2. List results: #search-res li or .search-res li
+            doc.select("#search-res li, .search-res li").forEach { el ->
+                val linkEl = el.select("a.dd, a[href]").firstOrNull() ?: return@forEach
+                val link = linkEl.attr("href")
+                val name = el.select(".p1").firstOrNull()?.text()
+                    ?: linkEl.text().trim()
+                    ?: return@forEach
+                val pkg = link.removePrefix("/").split("/").lastOrNull()
+                    ?.removeSuffix(".html")
+                    ?: ""
+                results.add(SearchItem(appName = name, packageName = pkg,
+                    detailUrl = if (link.startsWith("http")) link else "https://apkpure.com$link"))
+            }
+
+            results.distinctBy { it.detailUrl }
         } catch (e: Exception) {
             emptyList()
         }
