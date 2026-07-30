@@ -107,6 +107,8 @@ data class AppDetailUiState(
     val searchPageUrl: String? = null,
     val searchHits: List<com.hyperos.updater.ui.screens.search.SourceHit> = emptyList(),
 
+    val isCustomRomSigned: Boolean = false,
+
     val error: String? = null
 )
 
@@ -191,12 +193,19 @@ class AppDetailViewModel @Inject constructor(
                         latestVersion = if (hasUpdate) result.latestVersion else result.currentVersion,
                         primarySource = result.updateSource,
                         sourceVersions = result.sourceVersions,
-                        isChecking = false
+                        isChecking = false,
+                        isCustomRomSigned = result.isCustomRomSigned
                     )
                 }
 
-                // Load history for each source async, fail-soft per source
-                loadHistory(result.appName)
+                // Load history for each source async, fail-soft per source.
+                // MemeOS history is skipped for custom-ROM-signed apps (no compatible source).
+                if (!result.isCustomRomSigned) {
+                    loadHistory(result.appName)
+                } else {
+                    // Still load non-MemeOS history
+                    loadHistoryExceptMemeos(result.appName)
+                }
 
             } catch (e: Exception) {
                 Log.e("AppDetailVM", "Load failed", e)
@@ -355,6 +364,74 @@ class AppDetailViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Load version history from every source EXCEPT MemeOS — used for
+     * custom-ROM-signed apps where MemeOS packages are incompatible.
+     */
+    private fun loadHistoryExceptMemeos(appName: String) {
+        val pkg = _state.value.packageName
+
+        _state.update { it.copy(isLoadingFdroidHistory = true) }
+        viewModelScope.launch {
+            try {
+                val history = fDroidService.getVersionHistory(pkg)
+                _state.update {
+                    it.copy(
+                        fdroidHistory = history
+                            .filter { h -> !WearOsDetector.isWearOsListing(h.versionName) }
+                            .map { h ->
+                            FDroidHistoryItem(h.versionName, h.versionCode, h.apkUrl)
+                        },
+                        isLoadingFdroidHistory = false
+                    )
+                }
+            } catch (e: Exception) {
+                Log.d("AppDetailVM", "FDroid history failed: ${e.message}")
+                _state.update { it.copy(isLoadingFdroidHistory = false) }
+            }
+        }
+
+        _state.update { it.copy(isLoadingGithubHistory = true) }
+        viewModelScope.launch {
+            try {
+                val history = gitHubService.getReleaseHistory(pkg)
+                _state.update {
+                    it.copy(
+                        githubHistory = history
+                            .filter { h -> !WearOsDetector.isWearOsListing(h.name) && !WearOsDetector.isWearOsListing(h.tag) }
+                            .map { h ->
+                            GitHubHistoryItem(h.tag, h.name, h.publishedAt, h.apkUrl)
+                        },
+                        isLoadingGithubHistory = false
+                    )
+                }
+            } catch (e: Exception) {
+                Log.d("AppDetailVM", "GitHub history failed: ${e.message}")
+                _state.update { it.copy(isLoadingGithubHistory = false) }
+            }
+        }
+
+        _state.update { it.copy(isLoadingApkmirrorHistory = true) }
+        viewModelScope.launch {
+            try {
+                val versions = apkMirrorService.getRecentVersions(appName)
+                _state.update {
+                    it.copy(
+                        apkmirrorHistory = versions
+                            .filter { v -> !WearOsDetector.isWearOsListing(v.version) }
+                            .map { v ->
+                            ApkMirrorHistoryItem(v.version, v.pageUrl)
+                        },
+                        isLoadingApkmirrorHistory = false
+                    )
+                }
+            } catch (e: Exception) {
+                Log.d("AppDetailVM", "APKMirror history failed: ${e.message}")
+                _state.update { it.copy(isLoadingApkmirrorHistory = false) }
+            }
+        }
+    }
+
     private fun loadSearchHistory(source: UpdateSource, appName: String, pageUrl: String?) {
         when (source) {
             UpdateSource.APKMIRROR -> {
@@ -436,10 +513,15 @@ class AppDetailViewModel @Inject constructor(
                         latestVersion = if (hasUpdate) result.latestVersion else result.currentVersion,
                         primarySource = result.updateSource,
                         sourceVersions = result.sourceVersions,
-                        isChecking = false
+                        isChecking = false,
+                        isCustomRomSigned = result.isCustomRomSigned
                     )
                 }
-                loadHistory(result.appName)
+                if (!result.isCustomRomSigned) {
+                    loadHistory(result.appName)
+                } else {
+                    loadHistoryExceptMemeos(result.appName)
+                }
             } catch (e: Exception) {
                 _state.update { it.copy(isChecking = false, error = e.message) }
             }

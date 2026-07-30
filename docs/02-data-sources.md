@@ -71,6 +71,14 @@ As fontes de terceiros são divididas em duas fases no `checkOneThirdPartyApp`:
 - **Key advantage:** Direct APK download URL. Eligible for auto-update.
 - **Issues:** Domain resolves only from Chinese networks — fail soft (any error returns null). No search integration.
 
+### MemeOs Updates *(Phase 2 — HTML scraper)*
+- **Catálogo:** `GET https://memeosupdates.com/apps/` — lista única com ~190 apps Xiaomi; cache em memória no `@Singleton`
+- **Detalhe:** `GET https://memeosupdates.com/apps/{pkg}` — versionName, versionCode real (extraído do APK), tamanho, data, histórico por região (`data-region="gl|cn"`)
+- **Download:** `resolveDirectDownloadUrl(versionPageUrl)` — bypass do countdown de 20s via 2 HTTP GETs; URL signed com `exp` timestamp
+- **Key advantage:** Única fonte de atualizações de apps de sistema Xiaomi. Eligible for auto-update (direct URL).
+- **Issues:** Catálogo limitado a apps Xiaomi. Busca por nome retorna vazio para apps não-Xiaomi (comportamento esperado).
+- **⚠️ Compatibilidade xiaomi.eu:** O MemeOS distribui APKs assinados pela Xiaomi (certificado oficial). Dispositivos com ROM xiaomi.eu têm os apps de sistema re-assinados com a test-key do AOSP — APKs do MemeOS são **incompatíveis** (`INSTALL_FAILED_UPDATE_INCOMPATIBLE`). O `SignatureGate` detecta esses apps no scan e os pula automaticamente. Não existe fonte pública de APKs individuais assinados pelo xiaomi.eu (apenas ROMs completas).
+
 ### Xiaomi GetApps (avaliado, NÃO adicionado)
 - `app.market.xiaomi.com/apm/app` retorna HTTP 400 "参数不能为空" — requer parâmetros/assinatura não documentados.
 - Precisaria de MITM reverse engineering para descobrir o protocolo.

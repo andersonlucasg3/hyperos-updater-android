@@ -5,5 +5,6 @@ data class AppInfo(
     val appName: String,
     val versionName: String,
     val versionCode: Long,
-    val isSystemApp: Boolean
+    val isSystemApp: Boolean,
+    val isCustomRomSigned: Boolean = false
 )

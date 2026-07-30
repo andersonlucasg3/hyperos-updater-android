@@ -51,6 +51,9 @@ fun AppListItem(
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         SourceBadge(update.updateSource)
+                        if (update.isCustomRomSigned) {
+                            SourceBadge(UpdateSource.CUSTOM_ROM)
+                        }
                         if (update.appType == com.hyperos.updater.domain.model.AppType.SYSTEM) {
                             SourceBadge(UpdateSource.TRACKER)
                         }
@@ -114,6 +117,7 @@ fun SourceBadge(source: UpdateSource) {
         UpdateSource.APKPURE -> "APKPure" to MaterialTheme.colorScheme.primary
         UpdateSource.APKCOMBO -> "APKCombo" to MaterialTheme.colorScheme.tertiary
         UpdateSource.APTOIDE -> "Aptoide" to MaterialTheme.colorScheme.primary
+        UpdateSource.CUSTOM_ROM -> "ROM custom" to MaterialTheme.colorScheme.error
         UpdateSource.FDROID -> "F-Droid" to MaterialTheme.colorScheme.secondary
         UpdateSource.GITHUB -> "GitHub" to MaterialTheme.colorScheme.primaryContainer
         UpdateSource.MEMEOS -> "MemeOS" to MaterialTheme.colorScheme.error

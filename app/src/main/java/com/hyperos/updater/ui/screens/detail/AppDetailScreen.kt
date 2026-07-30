@@ -124,6 +124,14 @@ fun AppDetailScreen(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
+                            if (state.isCustomRomSigned) {
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    "App assinado por ROM custom (xiaomi.eu) — sem fonte de atualização compatível",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.error
+                                )
+                            }
                         }
                     }
                 }
@@ -442,8 +450,8 @@ fun AppDetailScreen(
             }
 
             // ── Histórico de versões ───────────────────────────────────────
-            // MemeOS
-            if (state.memeosHistory.isNotEmpty()) {
+            // MemeOS (skipped for custom-ROM-signed apps: no compatible source)
+            if (!state.isCustomRomSigned && state.memeosHistory.isNotEmpty()) {
                 item { HistoryGroupHeader("MemeOS", state.isLoadingMemeosHistory) }
                 items(state.memeosHistory) { entry ->
                     val dlKey = UpdateSource.MEMEOS.name + state.appName + entry.version

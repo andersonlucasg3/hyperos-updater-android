@@ -18,6 +18,7 @@ Android app for Xiaomi devices running HyperOS that manages app and system updat
 - **Hide/Skip** — "Hide this app" (persiste em DataStore); "Skip this version" (some enquanto latestVersion == versão ignorada); Settings → "Apps ocultos" com labels + search; "Versões ignoradas" com per-entry unskip
 - **Per-App Recheck** — botão Refresh em cada card da UpdatesTab re-verifica apenas aquele app (8 fontes, mesma lógica do scan completo); spinner enquanto verifica; não afeta o estado global de scanning
 - **Self-Update** — verificação manual de novas versões via GitHub Releases (`api.github.com/repos/andersonlucasg3/hyperos-updater-android/releases/latest`); download e instalação do APK via DownloadManager (key fixa `SELFUPDATE`, root install chain); estados Idle/Checking/UpToDate/Available/Error/NoRelease
+- **xiaomi.eu Signature Gate** — detecção de apps de sistema re-assinados com test-key do AOSP (ROMs xiaomi.eu); badge "ROM custom" na lista; scan de sistema pula esses apps (sem request inútil ao MemeOS); página de detalhe explica "sem fonte de atualização compatível" e omite histórico do MemeOS
 - **App Icons** — ícones reais dos apps nas listas: `PackageAppIcon` (PackageManager, cache por `remember`) na lista de Updates; `UrlAppIcon` (Coil + placeholder Android) nas listas de Search
 - **Filtros** — chip "Updatable" filtra apenas apps com atualização disponível (persistido em `updatable_filter_enabled`); chip "Sistema" controla exibição de apps de sistema (persistido em `show_system_apps`) e também ESCOPA o scan (desligado = apenas third-party)
 - **Scan UX** — progresso determinado "x de y" durante o scan; auto-scan roda apenas uma vez por abertura do app (`checkAllAppsIfNeeded`); troca de abas não reescaneia; botão manual de refresh inalterado
@@ -89,6 +90,7 @@ See [docs/](docs/) for detailed documentation.
 - **APKPure:** retorna HTTP 403 para muitos pacotes de sistema
 - **Uptodown:** scraping best-effort, sem mapeamento confiável package→URL; **busca por nome QUEBRADA** (todos os padrões de URL conhecidos retornam HTTP 404/410 — o site removeu/relocou a feature de busca); serviço mantido mas não funcional para search
 - **MemeOS:** busca retorna vazio para nomes não-Xiaomi (comportamento esperado — catálogo apenas de apps de sistema Xiaomi)
+- **xiaomi.eu system apps:** ROMs xiaomi.eu re-assinam todos os apps de sistema com a test-key do AOSP (DN: `CN=Android, O=Android`). APKs oficiais assinados pela Xiaomi (MemeOs) são incompatíveis (signature mismatch → `INSTALL_FAILED_UPDATE_INCOMPATIBLE`). Não existe fonte pública de APKs individuais assinados pelo xiaomi.eu — apenas ROMs completas. Apps detectados com essa assinatura são marcados "ROM custom" e pulados do scan de sistema. Quando/ se surgir uma fonte compatível, o gate já está pronto para plugá-la.
 
 ## License
 

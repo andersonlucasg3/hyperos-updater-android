@@ -22,5 +22,6 @@ data class AppUpdate(
     val publishedDate: String?,
     val updateSource: UpdateSource,
     val appType: AppType,
-    val sourceVersions: List<SourceVersion> = emptyList()
+    val sourceVersions: List<SourceVersion> = emptyList(),
+    val isCustomRomSigned: Boolean = false
 )

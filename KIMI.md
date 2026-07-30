@@ -188,6 +188,42 @@ Only sources with direct APK URLs are eligible: `DIRECT_DOWNLOAD_SOURCES = {APTO
 APKMirror and Uptodown are skipped — they require intermediate pages or WebView.
 MEMEOS provides direct signed URLs via `MemeOsService.resolveDirectDownloadUrl()` (two HTTP GETs, bypasses the 20-second countdown).
 
+### xiaomi.eu Signature Gate (AOSP Test-Key Detection)
+
+**Research finding:** xiaomi.eu ROMs re-sign ALL system apps with the AOSP default platform test-key (DN: `CN=Android, OU=Android, O=Android, L=Mountain View, ST=California, C=US`). Official Xiaomi-signed APKs (MemeOs) can NEVER update these apps — the package manager rejects them with `INSTALL_FAILED_UPDATE_INCOMPATIBLE` (signature mismatch). xiaomi.eu offers NO per-app distribution (full ROMs only), so no compatible update source currently exists for those apps.
+
+**Evidence:** xiaomi.eu forum threads + XDA reports of `INSTALL_FAILED_UPDATE_INCOMPATIBLE`; xiaomi.eu team policy: never update non-Google system apps on their ROMs.
+
+**Implementation — `util/SignatureGate.kt`:**
+
+```kotlin
+object SignatureGate {
+    // Android side: GET_SIGNING_CERTIFICATES → X.509 subjectDN
+    fun isAospTestKeySigned(pm: PackageManager, packageName: String): Boolean
+    // Pure function: requires CN=Android AND O=Android (tight match)
+    fun isAospTestKeyDn(dn: String): Boolean
+}
+```
+
+- `isAospTestKeyDn`: exact full-DN match (case-insensitive) + component-based match (CN=Android AND O=Android present, regardless of order or extra attributes). 11 unit tests covering exact, case-insensitive, reordered, extra attrs, Xiaomi/Google/random negative cases, CN-only/O-only false positives.
+- `isAospTestKeySigned`: Android-side integration using `PackageManager.GET_SIGNING_CERTIFICATES` (API 28+) with `@Suppress("DEPRECATION")` fallback to `GET_SIGNATURES` on older devices. Fails soft — any exception returns `false`.
+
+**How the gate is wired:**
+
+1. **`AppUpdateRepositoryImpl.getInstalledApps()`** — populates `AppInfo.isCustomRomSigned` for system apps (both `FLAG_SYSTEM` and `FLAG_UPDATED_SYSTEM_APP`) by calling `SignatureGate.isAospTestKeySigned()`.
+2. **`checkOneSystemApp()` short-circuit** — when `app.isCustomRomSigned == true`, returns `AppUpdate(updateSource=UNTRACKED, isCustomRomSigned=true)` immediately without fetching MemeOS. Log: `"SKIP <pkg>: signed by AOSP test-key (xiaomi.eu ROM) — no compatible source"`.
+3. **`recheckApp()`** — also populates `isCustomRomSigned` from PackageManager and passes it through to `checkOneSystemApp()`, which enforces the same short-circuit.
+4. **Worker unaffected** — `UNTRACKED` apps never enter auto-update (`AppCheckWorker` requires `DIRECT_DOWNLOAD_SOURCES`).
+
+**UI marks:**
+
+- **UpdatesTab / AppListItem:** `SourceBadge(UpdateSource.CUSTOM_ROM)` → "ROM custom" badge in `MaterialTheme.colorScheme.error` color, next to the primary source badge.
+- **AppDetailScreen header:** error-colored text "App assinado por ROM custom (xiaomi.eu) — sem fonte de atualização compatível".
+- **Version history:** MemeOS history gated out when `isCustomRomSigned` — `loadHistoryExceptMemeos()` still loads F-Droid, GitHub, and APKMirror history (the app may have non-MemeOS sources).
+- **"Versões por Fonte":** still shows for non-MemeOS sources; MemeOS section excluded.
+
+**Future-proofing:** if a source of xiaomi.eu-signed individual APKs ever appears, the gate is ready — add the source to the `isCustomRomSigned` branch in `checkOneSystemApp()` and wire it through the existing `UpdateSource` + UI infrastructure.
+
 ### Fast-Path de Fontes (Two-Phase Pipeline)
 `checkOneThirdPartyApp` in `AppUpdateRepositoryImpl` uses a two-phase pipeline:
 

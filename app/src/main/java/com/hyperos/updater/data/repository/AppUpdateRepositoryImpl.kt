@@ -22,6 +22,7 @@ import com.hyperos.updater.domain.model.AppUpdate
 import com.hyperos.updater.domain.model.SourceVersion
 import com.hyperos.updater.domain.model.UpdateSource
 import com.hyperos.updater.domain.repository.AppUpdateRepository
+import com.hyperos.updater.util.SignatureGate
 import com.hyperos.updater.util.VersionComparator
 import com.hyperos.updater.util.XiaomiApps
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -76,6 +77,10 @@ class AppUpdateRepositoryImpl @Inject constructor(
                 val version = pkg.versionName
                 if (version == null || version.isBlank() || version.all { it == '0' || it == '.' }) return@mapNotNull null
 
+                // Detect xiaomi.eu re-signed system apps (AOSP test-key)
+                val customRomSigned = (isSystem || isUpdatedSystem) &&
+                    SignatureGate.isAospTestKeySigned(pm, pkg.packageName)
+
                 AppInfo(
                     packageName = pkg.packageName,
                     appName = info.loadLabel(pm)?.toString() ?: pkg.packageName,
@@ -85,7 +90,8 @@ class AppUpdateRepositoryImpl @Inject constructor(
                     } else {
                         @Suppress("DEPRECATION") pkg.versionCode.toLong()
                     },
-                    isSystemApp = isSystem || isUpdatedSystem
+                    isSystemApp = isSystem || isUpdatedSystem,
+                    isCustomRomSigned = customRomSigned
                 )
             }
         }
@@ -111,6 +117,25 @@ class AppUpdateRepositoryImpl @Inject constructor(
     private suspend fun checkOneSystemApp(app: AppInfo, catalog: Map<String, String>): AppUpdate {
         try {
             trackedAppDao.updateCurrentVersion(app.packageName, app.versionName, System.currentTimeMillis())
+
+            // xiaomi.eu re-signed: official packages are incompatible — skip the doomed fetch
+            if (app.isCustomRomSigned) {
+                Log.i("AppUpdateRepo", "SKIP ${app.packageName}: signed by AOSP test-key (xiaomi.eu ROM) — no compatible source")
+                return AppUpdate(
+                    packageName = app.packageName,
+                    appName = app.appName,
+                    currentVersion = app.versionName,
+                    latestVersion = app.versionName,
+                    latestVersionCode = app.versionCode,
+                    fileSize = null,
+                    downloadUrl = null,
+                    changelog = null,
+                    publishedDate = null,
+                    updateSource = UpdateSource.UNTRACKED,
+                    appType = AppType.SYSTEM,
+                    isCustomRomSigned = true
+                )
+            }
 
             if (app.packageName !in catalog) {
                 return untrackedSystemApp(app)
@@ -217,6 +242,11 @@ class AppUpdateRepositoryImpl @Inject constructor(
                 )
             }
 
+            val isSystem = (info.flags and ApplicationInfo.FLAG_SYSTEM) != 0 ||
+                (info.flags and ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0
+            val customRomSigned = isSystem &&
+                SignatureGate.isAospTestKeySigned(pm, pkgInfo.packageName)
+
             val app = AppInfo(
                 packageName = pkgInfo.packageName,
                 appName = info.loadLabel(pm)?.toString() ?: pkgInfo.packageName,
@@ -226,8 +256,8 @@ class AppUpdateRepositoryImpl @Inject constructor(
                 } else {
                     @Suppress("DEPRECATION") pkgInfo.versionCode.toLong()
                 },
-                isSystemApp = (info.flags and ApplicationInfo.FLAG_SYSTEM) != 0 ||
-                    (info.flags and ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0
+                isSystemApp = isSystem,
+                isCustomRomSigned = customRomSigned
             )
 
             when (appType) {

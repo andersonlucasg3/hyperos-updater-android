@@ -174,6 +174,7 @@ fun UpdatesTab(
                                         Text(if (hasUpdate) "${update.currentVersion} → ${update.latestVersion}" else update.currentVersion, style = MaterialTheme.typography.bodySmall)
                                         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                             SourceBadge(update.updateSource)
+                                            if (update.isCustomRomSigned) SourceBadge(UpdateSource.CUSTOM_ROM)
                                             if (update.appType == com.hyperos.updater.domain.model.AppType.SYSTEM) SourceBadge(UpdateSource.TRACKER)
                                         }
                                     }

@@ -9,6 +9,7 @@
 - **Comparação:** `hasUpdate = sameLine && (semanticNewer || (codeNewer && !semanticOlder))` — `versionCode` nunca cruza linhas (ex: `0.0.0-global` nunca atualiza para `0.0.0-cn`)
 - **Cache:** catálogo em memória no `@Singleton`, revalidado a cada scan completo (`forceRefresh`)
 - **Apps não presentes no catálogo:** marcados `UNTRACKED`
+- **Gate de assinatura xiaomi.eu:** ROMs xiaomi.eu re-assinam TODOS os apps de sistema com a test-key do AOSP (DN: `CN=Android, O=Android`). `SignatureGate.isAospTestKeySigned()` detecta esses apps e `checkOneSystemApp()` faz short-circuit — retorna `UNTRACKED` sem chamar o MemeOS, porque APKs oficiais Xiaomi são signature-incompatible (`INSTALL_FAILED_UPDATE_INCOMPATIBLE`). A UI marca com badge "ROM custom" e a página de detalhe explica "sem fonte de atualização compatível". O `recheckApp()` também respeita o gate.
 
 ### Apps de Terceiros (8 fontes em paralelo)
 - **APKPure** — web scraping com Jsoup (`apkpure.com/search?q=`, página de detalhes)
