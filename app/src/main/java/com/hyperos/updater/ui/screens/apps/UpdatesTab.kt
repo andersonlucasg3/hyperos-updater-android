@@ -130,13 +130,17 @@ fun UpdatesTab(
             if (isScanning) {
                 item {
                     Column(modifier = Modifier.fillMaxWidth()) {
-                        if (scan != null && scan!!.second > 0) {
+                        // Snapshot scan to avoid racing with _scanProgress.value = null (line 192)
+                        // — the !! asserts were reading the State on every access,
+                        //   and the null-check + lambda could see different values of the State.
+                        val s = scan
+                        if (s != null && s.second > 0) {
                             LinearProgressIndicator(
-                                progress = { scan!!.first.toFloat() / scan!!.second },
+                                progress = { s.first.toFloat() / s.second },
                                 modifier = Modifier.fillMaxWidth()
                             )
                             Spacer(modifier = Modifier.height(4.dp))
-                            Text("${scan!!.first} de ${scan!!.second}", style = MaterialTheme.typography.labelSmall,
+                            Text("${s.first} de ${s.second}", style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant)
                         } else {
                             LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
