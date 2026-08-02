@@ -44,49 +44,51 @@ class ApkMirrorService @Inject constructor(
                     .url(url)
                     .header("User-Agent", NetworkUtils.APKMIRROR_USER_AGENT)
                     .build()
-                val response = okHttpClient.newCall(request).execute()
-                val html = response.body?.string() ?: return@withContext emptyList()
-                val doc = Jsoup.parse(html)
+                val result = okHttpClient.newCall(request).execute().use { response ->
+                    val html = response.body?.string() ?: return@withContext emptyList()
+                    val doc = Jsoup.parse(html)
 
-                val results = mutableListOf<ApkMirrorSearchItem>()
-                val seenSlugs = mutableSetOf<String>()
-                val queryLower = query.lowercase()
+                    val results = mutableListOf<ApkMirrorSearchItem>()
+                    val seenSlugs = mutableSetOf<String>()
+                    val queryLower = query.lowercase()
 
-                doc.select(".appRow").forEach { row ->
-                    val h5 = row.select("h5.appRowTitle").firstOrNull() ?: return@forEach
-                    val fullTitle = h5.attr("title").trim()
-                    // Skip Wear OS variants (e.g. "Spotify Wear OS")
-                    if (WearOsDetector.isWearOsListing(fullTitle)) return@forEach
-                    val link = h5.select("a.fontBlack, a[href*=/apk/]").firstOrNull() ?: return@forEach
-                    val pageUrl = link.attr("href").let {
-                        if (it.startsWith("http")) it else "https://www.apkmirror.com$it"
+                    doc.select(".appRow").forEach { row ->
+                        val h5 = row.select("h5.appRowTitle").firstOrNull() ?: return@forEach
+                        val fullTitle = h5.attr("title").trim()
+                        // Skip Wear OS variants (e.g. "Spotify Wear OS")
+                        if (WearOsDetector.isWearOsListing(fullTitle)) return@forEach
+                        val link = h5.select("a.fontBlack, a[href*=/apk/]").firstOrNull() ?: return@forEach
+                        val pageUrl = link.attr("href").let {
+                            if (it.startsWith("http")) it else "https://www.apkmirror.com$it"
+                        }
+
+                        val text = link.text().trim()
+                        if (!fullTitle.lowercase().contains(queryLower) &&
+                            !text.lowercase().contains(queryLower)) return@forEach
+
+                        // Extract slug: /apk/dev/app-slug/
+                        val slugMatch = Regex("/apk/([^/]+/[^/]+)/").find(pageUrl)
+                        val slug = slugMatch?.groupValues?.get(1) ?: return@forEach
+                        if (slug in seenSlugs) return@forEach
+                        seenSlugs.add(slug)
+
+                        val version = Regex("(\\d+\\.\\d+(\\.\\d+)*)").find(fullTitle)?.value
+                        val cleanName = fullTitle
+                            .replace(Regex("\\s*\\d+\\.\\d+.*"), "")
+                            .replace(Regex("\\s*\\(.*?\\)\\s*"), " ")
+                            .trim()
+
+                        val devEl = row.select(".byDeveloper a, .developer a").firstOrNull()
+                        val devName = devEl?.text()?.trim() ?: slug.split("/").first()
+
+                        results.add(ApkMirrorSearchItem(cleanName, version, devName, pageUrl, null))
                     }
 
-                    val text = link.text().trim()
-                    if (!fullTitle.lowercase().contains(queryLower) &&
-                        !text.lowercase().contains(queryLower)) return@forEach
-
-                    // Extract slug: /apk/dev/app-slug/
-                    val slugMatch = Regex("/apk/([^/]+/[^/]+)/").find(pageUrl)
-                    val slug = slugMatch?.groupValues?.get(1) ?: return@forEach
-                    if (slug in seenSlugs) return@forEach
-                    seenSlugs.add(slug)
-
-                    val version = Regex("(\\d+\\.\\d+(\\.\\d+)*)").find(fullTitle)?.value
-                    val cleanName = fullTitle
-                        .replace(Regex("\\s*\\d+\\.\\d+.*"), "")
-                        .replace(Regex("\\s*\\(.*?\\)\\s*"), " ")
-                        .trim()
-
-                    val devEl = row.select(".byDeveloper a, .developer a").firstOrNull()
-                    val devName = devEl?.text()?.trim() ?: slug.split("/").first()
-
-                    results.add(ApkMirrorSearchItem(cleanName, version, devName, pageUrl, null))
+                    val final = results.take(15)
+                    Log.d("ApkMirror", "search '$query': returning ${final.size} results")
+                    final
                 }
-
-                val final = results.take(15)
-                Log.d("ApkMirror", "search '$query': returning ${final.size} results")
-                final
+                result
             } catch (e: Exception) {
                 Log.w("ApkMirror", "Search failed: ${e.message}", e)
                 emptyList()
@@ -101,9 +103,11 @@ class ApkMirrorService @Inject constructor(
                 .url(url)
                 .header("User-Agent", NetworkUtils.APKMIRROR_USER_AGENT)
                 .build()
-            val response = okHttpClient.newCall(request).execute()
-            val body = response.body?.string() ?: return@withContext emptyList()
-            parseRssFeed(body)
+            val result = okHttpClient.newCall(request).execute().use { response ->
+                val body = response.body?.string() ?: return@withContext emptyList()
+                parseRssFeed(body)
+            }
+            result
         } catch (e: Exception) {
             Log.w("ApkMirror", "Feed fetch failed for $slug: ${e.message}", e)
             emptyList()
@@ -134,15 +138,17 @@ class ApkMirrorService @Inject constructor(
                 .url(releasePageUrl)
                 .header("User-Agent", NetworkUtils.APKMIRROR_USER_AGENT)
                 .build()
-            val response = okHttpClient.newCall(request).execute()
-            val html = response.body?.string() ?: return@withContext null
-            val doc = Jsoup.parse(html)
+            val result = okHttpClient.newCall(request).execute().use { response ->
+                val html = response.body?.string() ?: return@withContext null
+                val doc = Jsoup.parse(html)
 
-            doc.select("a[rel=nofollow]").firstOrNull { link ->
-                link.attr("href").contains("download")
-            }?.attr("href")?.let { href ->
-                "https://www.apkmirror.com$href"
+                doc.select("a[rel=nofollow]").firstOrNull { link ->
+                    link.attr("href").contains("download")
+                }?.attr("href")?.let { href ->
+                    "https://www.apkmirror.com$href"
+                }
             }
+            result
         } catch (e: Exception) {
             null
         }

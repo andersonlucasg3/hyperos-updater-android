@@ -30,32 +30,34 @@ class FDroidService @Inject constructor(
         try {
             val url = "https://f-droid.org/api/v1/packages/$packageName"
             val request = Request.Builder().url(url).build()
-            val response = okHttpClient.newCall(request).execute()
-            if (!response.isSuccessful) return@withContext null
-            val body = response.body?.string() ?: return@withContext null
-            val json = JSONObject(body)
+            val result = okHttpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@withContext null
+                val body = response.body?.string() ?: return@withContext null
+                val json = JSONObject(body)
 
-            val versionName = json.optString("suggestedVersionName", "")
-            val versionCode = json.optLong("suggestedVersionCode", 0L)
+                val versionName = json.optString("suggestedVersionName", "")
+                val versionCode = json.optLong("suggestedVersionCode", 0L)
 
-            // Build download URL from the packages array
-            val packages = json.optJSONArray("packages") ?: return@withContext null
-            var downloadUrl: String? = null
-            for (i in 0 until packages.length()) {
-                val pkg = packages.getJSONObject(i)
-                if (pkg.optLong("versionCode") == versionCode) {
-                    val apkName = pkg.optString("apkName", "")
-                    if (apkName.isNotEmpty()) {
-                        downloadUrl = "https://f-droid.org/repo/$apkName"
-                        break
+                // Build download URL from the packages array
+                val packages = json.optJSONArray("packages") ?: return@withContext null
+                var downloadUrl: String? = null
+                for (i in 0 until packages.length()) {
+                    val pkg = packages.getJSONObject(i)
+                    if (pkg.optLong("versionCode") == versionCode) {
+                        val apkName = pkg.optString("apkName", "")
+                        if (apkName.isNotEmpty()) {
+                            downloadUrl = "https://f-droid.org/repo/$apkName"
+                            break
+                        }
                     }
                 }
-            }
 
-            if (versionCode > 0 && versionName.isNotEmpty()) {
-                Log.i("FDroid", "v$versionName for $packageName")
-                FDroidResult(versionName, versionCode, downloadUrl)
-            } else null
+                if (versionCode > 0 && versionName.isNotEmpty()) {
+                    Log.i("FDroid", "v$versionName for $packageName")
+                    FDroidResult(versionName, versionCode, downloadUrl)
+                } else null
+            }
+            result
         } catch (e: Exception) {
             null
         }
@@ -66,31 +68,33 @@ class FDroidService @Inject constructor(
         try {
             val url = "https://f-droid.org/api/v1/packages/$packageName"
             val request = Request.Builder().url(url).build()
-            val response = okHttpClient.newCall(request).execute()
-            if (!response.isSuccessful) return@withContext emptyList()
-            val body = response.body?.string() ?: return@withContext emptyList()
-            val json = JSONObject(body)
+            val result = okHttpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@withContext emptyList()
+                val body = response.body?.string() ?: return@withContext emptyList()
+                val json = JSONObject(body)
 
-            val packages = json.optJSONArray("packages")
-                ?: json.optJSONObject("packages")?.let { obj ->
-                    val arr = org.json.JSONArray()
-                    obj.keys().forEach { key -> arr.put(obj.get(key)) }
-                    arr
-                }
-                ?: return@withContext emptyList()
+                val packages = json.optJSONArray("packages")
+                    ?: json.optJSONObject("packages")?.let { obj ->
+                        val arr = org.json.JSONArray()
+                        obj.keys().forEach { key -> arr.put(obj.get(key)) }
+                        arr
+                    }
+                    ?: return@withContext emptyList()
 
-            val result = mutableListOf<FDroidVersion>()
-            for (i in 0 until packages.length()) {
-                val pkg = packages.getJSONObject(i)
-                val vn = pkg.optString("versionName", "")
-                val vc = pkg.optLong("versionCode", 0L)
-                val apkName = pkg.optString("apkName", "")
-                val apkUrl = if (apkName.isNotEmpty()) "https://f-droid.org/repo/$apkName" else null
-                if (vn.isNotEmpty() && vc > 0) {
-                    result.add(FDroidVersion(vn, vc, apkUrl))
+                val list = mutableListOf<FDroidVersion>()
+                for (i in 0 until packages.length()) {
+                    val pkg = packages.getJSONObject(i)
+                    val vn = pkg.optString("versionName", "")
+                    val vc = pkg.optLong("versionCode", 0L)
+                    val apkName = pkg.optString("apkName", "")
+                    val apkUrl = if (apkName.isNotEmpty()) "https://f-droid.org/repo/$apkName" else null
+                    if (vn.isNotEmpty() && vc > 0) {
+                        list.add(FDroidVersion(vn, vc, apkUrl))
+                    }
                 }
+                list.sortedByDescending { it.versionCode }
             }
-            result.sortedByDescending { it.versionCode }
+            result
         } catch (e: Exception) {
             Log.d("FDroid", "getVersionHistory error for $packageName: ${e.message}")
             emptyList()

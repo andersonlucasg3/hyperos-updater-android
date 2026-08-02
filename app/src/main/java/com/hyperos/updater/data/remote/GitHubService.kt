@@ -57,7 +57,10 @@ class GitHubService @Inject constructor(
         "com.simplemobiletools.gallery.pro" to "SimpleMobileTools/Simple-Gallery",
         "org.fossify.gallery" to "FossifyOrg/Gallery",
         "com.github.kr328.clash" to "Kr328/ClashForAndroid",
-        "com.gh4a" to "maniac103/OctoDroid"
+        "com.gh4a" to "maniac103/OctoDroid",
+        "com.tailscale.ipn" to "tailscale/tailscale-android",
+        "org.fdroid.fdroid" to "fdroid/fdroidclient",
+        "com.wireguard.android" to "wireguard/wireguard-android"
     )
 
     suspend fun checkRelease(packageName: String): GitHubResult? = withContext(Dispatchers.IO) {
@@ -67,44 +70,46 @@ class GitHubService @Inject constructor(
             val request = Request.Builder().url(url)
                 .header("Accept", "application/vnd.github.v3+json")
                 .build()
-            val response = okHttpClient.newCall(request).execute()
-            if (!response.isSuccessful) return@withContext null
-            val body = response.body?.string() ?: return@withContext null
-            val json = JSONObject(body)
+            val result = okHttpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@withContext null
+                val body = response.body?.string() ?: return@withContext null
+                val json = JSONObject(body)
 
-            val tagName = json.optString("tag_name", "").removePrefix("v")
-            val version = Regex("""(\d+\.\d+(?:\.\d+)*)""").find(tagName)?.value ?: tagName
-            val versionCode = json.optLong("id", 0L)
+                val tagName = json.optString("tag_name", "").removePrefix("v")
+                val version = Regex("""(\d+\.\d+(?:\.\d+)*)""").find(tagName)?.value ?: tagName
+                val versionCode = json.optLong("id", 0L)
 
-            // Find best APK asset by ABI
-            val assets = json.optJSONArray("assets") ?: return@withContext null
-            var bestUrl: String? = null
-            var bestScore = -1
+                // Find best APK asset by ABI
+                val assets = json.optJSONArray("assets") ?: return@withContext null
+                var bestUrl: String? = null
+                var bestScore = -1
 
-            for (i in 0 until assets.length()) {
-                val asset = assets.getJSONObject(i)
-                val name = asset.optString("name", "")
-                val dlUrl = asset.optString("browser_download_url", "")
-                if (!name.endsWith(".apk")) continue
+                for (i in 0 until assets.length()) {
+                    val asset = assets.getJSONObject(i)
+                    val name = asset.optString("name", "")
+                    val dlUrl = asset.optString("browser_download_url", "")
+                    if (!name.endsWith(".apk")) continue
 
-                // Score by ABI preference
-                var score = 0
-                if (name.contains("arm64-v8a")) score = 100
-                else if (name.contains("arm64")) score = 80
-                else if (name.contains("armeabi-v7a")) score = 60
-                else if (name.contains("universal") || name.contains("all")) score = 40
-                else score = 10
+                    // Score by ABI preference
+                    var score = 0
+                    if (name.contains("arm64-v8a")) score = 100
+                    else if (name.contains("arm64")) score = 80
+                    else if (name.contains("armeabi-v7a")) score = 60
+                    else if (name.contains("universal") || name.contains("all")) score = 40
+                    else score = 10
 
-                if (score > bestScore) {
-                    bestScore = score
-                    bestUrl = dlUrl
+                    if (score > bestScore) {
+                        bestScore = score
+                        bestUrl = dlUrl
+                    }
                 }
-            }
 
-            if (bestUrl != null) {
-                Log.i("GitHub", "v$version for $packageName ($repo)")
-                GitHubResult(version, versionCode, bestUrl)
-            } else null
+                if (bestUrl != null) {
+                    Log.i("GitHub", "v$version for $packageName ($repo)")
+                    GitHubResult(version, versionCode, bestUrl)
+                } else null
+            }
+            result
         } catch (e: Exception) {
             null
         }
@@ -118,34 +123,36 @@ class GitHubService @Inject constructor(
             val request = Request.Builder().url(url)
                 .header("Accept", "application/vnd.github.v3+json")
                 .build()
-            val response = okHttpClient.newCall(request).execute()
-            if (!response.isSuccessful) return@withContext emptyList()
-            val body = response.body?.string() ?: return@withContext emptyList()
-            val arr = org.json.JSONArray(body)
+            val result = okHttpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@withContext emptyList()
+                val body = response.body?.string() ?: return@withContext emptyList()
+                val arr = org.json.JSONArray(body)
 
-            val result = mutableListOf<GitHubRelease>()
-            for (i in 0 until arr.length()) {
-                val json = arr.getJSONObject(i)
-                val tag = json.optString("tag_name", "").removePrefix("v").removePrefix("V")
-                val name = json.optString("name", "").ifBlank { tag }
-                val publishedAt = json.optString("published_at", "").ifEmpty { null }
-                val assets = json.optJSONArray("assets")
-                var apkUrl: String? = null
-                if (assets != null) {
-                    for (j in 0 until assets.length()) {
-                        val asset = assets.getJSONObject(j)
-                        val assetName = asset.optString("name", "")
-                        if (assetName.endsWith(".apk")) {
-                            apkUrl = asset.optString("browser_download_url", "")
-                            break
+                val list = mutableListOf<GitHubRelease>()
+                for (i in 0 until arr.length()) {
+                    val json = arr.getJSONObject(i)
+                    val tag = json.optString("tag_name", "").removePrefix("v").removePrefix("V")
+                    val name = json.optString("name", "").ifBlank { tag }
+                    val publishedAt = json.optString("published_at", "").ifEmpty { null }
+                    val assets = json.optJSONArray("assets")
+                    var apkUrl: String? = null
+                    if (assets != null) {
+                        for (j in 0 until assets.length()) {
+                            val asset = assets.getJSONObject(j)
+                            val assetName = asset.optString("name", "")
+                            if (assetName.endsWith(".apk")) {
+                                apkUrl = asset.optString("browser_download_url", "")
+                                break
+                            }
                         }
                     }
+                    if (tag.isNotBlank()) {
+                        list.add(GitHubRelease(tag, name.ifBlank { tag }, publishedAt, apkUrl))
+                    }
                 }
-                if (tag.isNotBlank()) {
-                    result.add(GitHubRelease(tag, name.ifBlank { tag }, publishedAt, apkUrl))
-                }
+                Log.d("GitHub", "getReleaseHistory for $packageName: ${list.size} releases")
+                list
             }
-            Log.d("GitHub", "getReleaseHistory for $packageName: ${result.size} releases")
             result
         } catch (e: Exception) {
             Log.d("GitHub", "getReleaseHistory error for $packageName: ${e.message}")

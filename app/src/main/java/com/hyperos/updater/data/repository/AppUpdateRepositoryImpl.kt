@@ -292,19 +292,22 @@ class AppUpdateRepositoryImpl @Inject constructor(
      * Two-phase third-party update check.
      *
      * Phase 1 (cheap JSON APIs, parallel): Aptoide, F-Droid, GitHub, Tencent.
-     *   If ANY phase-1 source returns a non-null result — the app is KNOWN to at
-     *   least one API — we skip phase 2 entirely and build the AppUpdate from
-     *   phase-1 results alone (same pickBest / isNewer plumbing).
+     *   If ANY phase-1 source returns a version that is genuinely NEWER than the
+     *   installed version (via [VersionComparator.isNewer]), we skip phase 2
+     *   entirely — an update was already found, and the scrapers would only add
+     *   marginal benefit at ~4-8× the cost.
      *
      * Phase 2 (HTML scrapers, parallel): APKPure, APKCombo, APKMirror, MemeOS,
-     *   Uptodown. Only runs when every phase-1 source returned null (app unknown
-     *   to all JSON APIs). These scrapers are ~4-8× slower than JSON APIs, so
-     *   avoiding them in the common case saves significant wall-clock time.
+     *   Uptodown. Runs when NO phase-1 source found an actual update — even if
+     *   some API knows the app but only serves an older or equal version (e.g.
+     *   F-Droid builds lag behind upstream). These scrapers are ~4-8× slower
+     *   than JSON APIs, so avoiding them when an update is already found saves
+     *   significant wall-clock time.
      *
-     * Trade-off: less cross-checking when an API resolves the app — a version
-     *   that only exists on a scraper-only source will be missed if ANY API
-     *   already knows the package. In practice the JSON APIs (especially F-Droid
-     *   and Aptoide) cover the vast majority of packages.
+     * This fixes the classic case where F-Droid knows a package but lags behind
+     * the upstream release (e.g. Tailscale): phase 1 returns a result but it is
+     * NOT newer → phase 2 runs → APKMirror/APKPure with the actual new version
+     * is consulted and the update is surfaced.
      */
     private suspend fun checkOneThirdPartyApp(app: AppInfo, appType: AppType = AppType.THIRD_PARTY): AppUpdate =
         coroutineScope {
@@ -323,15 +326,17 @@ class AppUpdateRepositoryImpl @Inject constructor(
 
                 val phase1Results = listOfNotNull(aptoideResult, fdroidResult, githubResult, tencentResult)
 
-                // ---- Phase 2: HTML scrapers (only when no API knows this app) ----
+                // ---- Phase 2: HTML scrapers (only when no API found an actual update) ----
                 val pureResult: SourceResult?
                 val comboResult: SourceResult?
                 val mirrorResult: SourceResult?
                 val memeosResult: SourceResult?
                 val uptodownResult: SourceResult?
 
-                if (phase1Results.isEmpty()) {
-                    Log.d("AppUpdateRepo", "Phase 2 scraping for ${app.packageName} — no API source knows this app")
+                val phase1HasUpdate = phase1Results.any { VersionComparator.isNewer(app.versionName, it.versionName) }
+
+                if (!phase1HasUpdate) {
+                    Log.d("AppUpdateRepo", "Phase 2 scraping for ${app.packageName} — no update from APIs")
                     val pureDeferred = async { tryApkPure(app.packageName) }
                     val comboDeferred = async { tryApkCombo(app.packageName) }
                     val mirrorDeferred = async { tryApkMirror(app) }
@@ -343,7 +348,10 @@ class AppUpdateRepositoryImpl @Inject constructor(
                     memeosResult = memeosDeferred.await()
                     uptodownResult = uptodownDeferred.await()
                 } else {
-                    Log.d("AppUpdateRepo", "Phase 2 skipped for ${app.packageName} — found in ${phase1Results.joinToString { it.source.name }}")
+                    val updateSources = phase1Results
+                        .filter { VersionComparator.isNewer(app.versionName, it.versionName) }
+                        .joinToString { it.source.name }
+                    Log.d("AppUpdateRepo", "Phase 2 skipped for ${app.packageName} — update found via $updateSources")
                     pureResult = null
                     comboResult = null
                     mirrorResult = null

@@ -33,23 +33,25 @@ class TencentService @Inject constructor(
             val request = Request.Builder().url(url)
                 .header("User-Agent", NetworkUtils.USER_AGENT)
                 .build()
-            val response = okHttpClient.newCall(request).execute()
-            if (!response.isSuccessful) return@withContext null
-            val html = response.body?.string() ?: return@withContext null
+            val result = okHttpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@withContext null
+                val html = response.body?.string() ?: return@withContext null
 
-            // Extract window.systemData = {...}; from the HTML
-            val json = extractSystemData(html) ?: return@withContext null
-            val appDetail = json.optJSONObject("appDetail") ?: return@withContext null
+                // Extract window.systemData = {...}; from the HTML
+                val json = extractSystemData(html) ?: return@withContext null
+                val appDetail = json.optJSONObject("appDetail") ?: return@withContext null
 
-            val versionName = appDetail.optString("versionName", "").takeIf { it.isNotEmpty() }
-                ?: return@withContext null
-            val appName = appDetail.optString("appName", "")
-            // Prefer 64-bit APK URL over 32-bit
-            val downloadUrl = appDetail.optString("apkUrl64", "").takeIf { it.isNotEmpty() }
-                ?: appDetail.optString("apkUrl", "").takeIf { it.isNotEmpty() }
+                val versionName = appDetail.optString("versionName", "").takeIf { it.isNotEmpty() }
+                    ?: return@withContext null
+                val appName = appDetail.optString("appName", "")
+                // Prefer 64-bit APK URL over 32-bit
+                val downloadUrl = appDetail.optString("apkUrl64", "").takeIf { it.isNotEmpty() }
+                    ?: appDetail.optString("apkUrl", "").takeIf { it.isNotEmpty() }
 
-            Log.i("Tencent", "v$versionName for $packageName ($appName)")
-            TencentResult(appName = appName, versionName = versionName, downloadUrl = downloadUrl)
+                Log.i("Tencent", "v$versionName for $packageName ($appName)")
+                TencentResult(appName = appName, versionName = versionName, downloadUrl = downloadUrl)
+            }
+            result
         } catch (e: Exception) {
             Log.d("Tencent", "checkVersion error for $packageName: ${e.message}")
             null

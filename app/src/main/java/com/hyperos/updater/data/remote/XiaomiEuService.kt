@@ -35,40 +35,42 @@ class XiaomiEuService @Inject constructor(
         try {
             val codenameUpper = codename.uppercase()
             val request = Request.Builder().url(RSS_URL).build()
-            val response = okHttpClient.newCall(request).execute()
-            if (!response.isSuccessful) {
-                Log.w(TAG, "RSS feed returned HTTP ${response.code}")
-                return@withContext null
+            val result = okHttpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    Log.w(TAG, "RSS feed returned HTTP ${response.code}")
+                    return@withContext null
+                }
+                val body = response.body?.string() ?: return@withContext null
+
+                val items = parseRssItems(body)
+
+                // Filter: first item whose title contains _{CODENAME_UPPERCASE}_
+                val match = items.firstOrNull { item ->
+                    item.title.contains("_${codenameUpper}_")
+                } ?: run {
+                    Log.i(TAG, "No xiaomi.eu ROM found for codename $codenameUpper in ${items.size} items")
+                    return@withContext null
+                }
+
+                // Extract numeric version from filename: _OS{major}.{minor}.{patch}.{build}_
+                val versionMatch = VERSION_REGEX.find(match.title)
+                val version = versionMatch?.let {
+                    val (major, minor, patch, build) = it.destructured
+                    "OS$major.$minor.$patch.$build"
+                } ?: match.title
+
+                Log.i(TAG, "Latest ROM for $codename: $version — ${match.title} (${match.fileSize} bytes)")
+
+                XiaomiEuRom(
+                    version = version,
+                    fileName = match.title,
+                    downloadUrl = match.link,
+                    sizeBytes = match.fileSize,
+                    md5 = match.md5,
+                    publishedDate = match.pubDate
+                )
             }
-            val body = response.body?.string() ?: return@withContext null
-
-            val items = parseRssItems(body)
-
-            // Filter: first item whose title contains _{CODENAME_UPPERCASE}_
-            val match = items.firstOrNull { item ->
-                item.title.contains("_${codenameUpper}_")
-            } ?: run {
-                Log.i(TAG, "No xiaomi.eu ROM found for codename $codenameUpper in ${items.size} items")
-                return@withContext null
-            }
-
-            // Extract numeric version from filename: _OS{major}.{minor}.{patch}.{build}_
-            val versionMatch = VERSION_REGEX.find(match.title)
-            val version = versionMatch?.let {
-                val (major, minor, patch, build) = it.destructured
-                "OS$major.$minor.$patch.$build"
-            } ?: match.title
-
-            Log.i(TAG, "Latest ROM for $codename: $version — ${match.title} (${match.fileSize} bytes)")
-
-            XiaomiEuRom(
-                version = version,
-                fileName = match.title,
-                downloadUrl = match.link,
-                sizeBytes = match.fileSize,
-                md5 = match.md5,
-                publishedDate = match.pubDate
-            )
+            result
         } catch (e: Exception) {
             Log.w(TAG, "Failed to check xiaomi.eu ROM for $codename: ${e.message}")
             null
