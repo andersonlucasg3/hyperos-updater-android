@@ -388,8 +388,11 @@ class DownloadManager @Inject constructor(
             session.openWrite("base.apk", 0, file.length()).use { out ->
                 file.inputStream().use { it.copyTo(out) }
             }
+            // PackageInstaller.commit() REQUIRES a mutable PendingIntent — the framework
+            // writes status extras (EXTRA_STATUS, EXTRA_STATUS_MESSAGE, etc.) into the intent
+            // before broadcasting. This is the documented exception to the immutability rule.
             val dummyIntent = Intent("com.hyperos.updater.INSTALL_DONE")
-            val pendingIntent = android.app.PendingIntent.getBroadcast(app, sessionId, dummyIntent, android.app.PendingIntent.FLAG_IMMUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT)
+            val pendingIntent = android.app.PendingIntent.getBroadcast(app, sessionId, dummyIntent, android.app.PendingIntent.FLAG_MUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT)
             session.commit(pendingIntent.intentSender)
             session.close()
             Log.i("DownloadManager", "Session install $sessionId")
@@ -410,8 +413,11 @@ class DownloadManager @Inject constructor(
                     apk.inputStream().use { out.write(it.readBytes()) }
                 }
             }
+            // PackageInstaller.commit() REQUIRES a mutable PendingIntent — the framework
+            // writes status extras (EXTRA_STATUS, EXTRA_STATUS_MESSAGE, etc.) into the intent
+            // before broadcasting. This is the documented exception to the immutability rule.
             val dummyIntent = Intent("com.hyperos.updater.INSTALL_DONE")
-            val pendingIntent = android.app.PendingIntent.getBroadcast(app, sessionId, dummyIntent, android.app.PendingIntent.FLAG_IMMUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT)
+            val pendingIntent = android.app.PendingIntent.getBroadcast(app, sessionId, dummyIntent, android.app.PendingIntent.FLAG_MUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT)
             session.commit(pendingIntent.intentSender); session.close()
             Log.i("DownloadManager", "Multi-session $sessionId: ${apkFiles.size} splits")
             null
@@ -429,7 +435,7 @@ class DownloadManager @Inject constructor(
                     if (entry.isDirectory) return@forEach
                     val out = File(outDir, entry.name); out.parentFile?.mkdirs()
                     zip.getInputStream(entry).use { input -> out.outputStream().use { output -> input.copyTo(output) } }
-                    if (out.extension == "apk") apkFiles.add(out)
+                    if (out.extension.equals("apk", ignoreCase = true)) apkFiles.add(out)
                 }
             }
             if (apkFiles.isEmpty()) return "No APKs found in split bundle"
@@ -442,10 +448,16 @@ class DownloadManager @Inject constructor(
                 // Fall back to regular install (root → session → Intent)
                 return installApk(apkFiles.first())
             }
-            // Try root multi first, fall back to session multi
-            val rootResult = rootInstallMulti(apkFiles)
-            if (rootResult == null) return null
-            return sessionInstallMulti(apkFiles)
+            // PackageInstaller.Session handles split sets atomically — always try
+            // session first for multi-split bundles. Root per-split pm install can
+            // never work for dependent splits (each individual split fails with
+            // INSTALL_FAILED_MISSING_SPLIT by design).
+            val sessionResult = sessionInstallMulti(apkFiles)
+            if (sessionResult == null) return null
+            // Session failed — don't silently retry root per-split (doomed for real
+            // split bundles). Surface the error clearly so the user knows the bundle
+            // may be incomplete for this device.
+            return "Bundle incompleto: ${sessionResult} — split ausente ou incompatível com este dispositivo"
         } catch (e: Exception) { return "Split APK extract failed: ${e.message}" }
     }
 }
