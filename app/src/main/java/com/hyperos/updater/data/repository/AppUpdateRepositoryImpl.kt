@@ -22,6 +22,7 @@ import com.hyperos.updater.domain.model.AppUpdate
 import com.hyperos.updater.domain.model.SourceVersion
 import com.hyperos.updater.domain.model.UpdateSource
 import com.hyperos.updater.domain.repository.AppUpdateRepository
+import com.hyperos.updater.util.AppNameMatcher
 import com.hyperos.updater.util.SignatureGate
 import com.hyperos.updater.util.VersionComparator
 import com.hyperos.updater.util.XiaomiApps
@@ -465,11 +466,10 @@ class AppUpdateRepositoryImpl @Inject constructor(
 
     private suspend fun tryApkMirror(app: AppInfo): SourceResult? = try {
         val items = apkMirrorService.searchByName(app.appName)
-        // Find the item whose name best matches the installed app
-        val match = items.firstOrNull { item ->
-            item.appName.lowercase().contains(app.appName.lowercase().take(4)) ||
-            app.appName.lowercase().contains(item.appName.lowercase().take(4))
-        } ?: items.firstOrNull() ?: return null
+        // Strict tiered matching — a missed source is better than a WRONG app
+        val candidateNames = items.map { it.appName }
+        val idx = AppNameMatcher.findFirstMatch(app.appName, candidateNames)
+        val match = if (idx != null) items[idx] else return null
         val version = match.version ?: return null
         SourceResult(version, 0L, match.pageUrl, null, UpdateSource.APKMIRROR)
     } catch (_: Exception) { null }

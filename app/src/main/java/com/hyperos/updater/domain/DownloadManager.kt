@@ -389,7 +389,7 @@ class DownloadManager @Inject constructor(
                 file.inputStream().use { it.copyTo(out) }
             }
             val dummyIntent = Intent("com.hyperos.updater.INSTALL_DONE")
-            val pendingIntent = android.app.PendingIntent.getBroadcast(app, sessionId, dummyIntent, android.app.PendingIntent.FLAG_MUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT)
+            val pendingIntent = android.app.PendingIntent.getBroadcast(app, sessionId, dummyIntent, android.app.PendingIntent.FLAG_IMMUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT)
             session.commit(pendingIntent.intentSender)
             session.close()
             Log.i("DownloadManager", "Session install $sessionId")
@@ -411,7 +411,7 @@ class DownloadManager @Inject constructor(
                 }
             }
             val dummyIntent = Intent("com.hyperos.updater.INSTALL_DONE")
-            val pendingIntent = android.app.PendingIntent.getBroadcast(app, sessionId, dummyIntent, android.app.PendingIntent.FLAG_MUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT)
+            val pendingIntent = android.app.PendingIntent.getBroadcast(app, sessionId, dummyIntent, android.app.PendingIntent.FLAG_IMMUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT)
             session.commit(pendingIntent.intentSender); session.close()
             Log.i("DownloadManager", "Multi-session $sessionId: ${apkFiles.size} splits")
             null
@@ -433,7 +433,15 @@ class DownloadManager @Inject constructor(
                 }
             }
             if (apkFiles.isEmpty()) return "No APKs found in split bundle"
-            if (apkFiles.size == 1) return installApk(apkFiles.first())
+            // Single APK from a bundle may be a split APK (not standalone) —
+            // pm install will fail with INSTALL_FAILED_MISSING_SPLIT.
+            // Use session install which handles split APKs correctly.
+            if (apkFiles.size == 1) {
+                val sessionResult = sessionInstallSingle(apkFiles.first())
+                if (sessionResult == null) return null
+                // Fall back to regular install (root → session → Intent)
+                return installApk(apkFiles.first())
+            }
             // Try root multi first, fall back to session multi
             val rootResult = rootInstallMulti(apkFiles)
             if (rootResult == null) return null

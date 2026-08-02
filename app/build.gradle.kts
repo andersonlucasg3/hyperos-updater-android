@@ -20,8 +20,8 @@ android {
         applicationId = "com.hyperos.updater"
         minSdk = 31
         targetSdk = 36
-        versionCode = 13
-        versionName = "1.4.4"
+        versionCode = 14
+        versionName = "1.4.5"
         buildConfigField("String", "BUILD_TIME", "\"$buildTime\"")
     }
 
