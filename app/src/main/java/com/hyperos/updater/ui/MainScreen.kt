@@ -16,6 +16,7 @@ fun MainScreen() {
     var selectedTab by remember { mutableIntStateOf(2) }
 
     Scaffold(
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         bottomBar = {
             NavigationBar {
                 NavigationBarItem(
