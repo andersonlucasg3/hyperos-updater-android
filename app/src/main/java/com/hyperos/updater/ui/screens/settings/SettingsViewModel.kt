@@ -1,5 +1,8 @@
 package com.hyperos.updater.ui.screens.settings
 
+import android.content.Context
+import android.content.Intent
+import androidx.core.content.FileProvider
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.hyperos.updater.BuildConfig
@@ -9,14 +12,17 @@ import com.hyperos.updater.domain.DownloadManager
 import com.hyperos.updater.domain.installer.RootApkInstaller
 import com.hyperos.updater.domain.repository.PreferencesRepository
 import com.hyperos.updater.domain.ActiveDownload
+import com.hyperos.updater.util.LogShareHelper
 import com.hyperos.updater.util.VersionComparator
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 sealed interface SelfUpdateState {
@@ -129,5 +135,47 @@ class SettingsViewModel @Inject constructor(
 
     fun unskipVersion(packageName: String, versionName: String) {
         viewModelScope.launch { preferencesRepository.removeSkippedVersion(packageName, versionName) }
+    }
+
+    // ── Log sharing ──────────────────────────────────────────────────
+
+    /** Whether log collection is in progress. */
+    private val _isGeneratingLogs = MutableStateFlow(false)
+    val isGeneratingLogs: StateFlow<Boolean> = _isGeneratingLogs
+
+    /** Last error message from log collection (null = no error). */
+    private val _logShareError = MutableStateFlow<String?>(null)
+    val logShareError: StateFlow<String?> = _logShareError
+
+    /** Collects logs and launches the system share sheet. */
+    fun shareLogs(context: Context) {
+        if (_isGeneratingLogs.value) return
+        _logShareError.value = null
+        _isGeneratingLogs.value = true
+        viewModelScope.launch {
+            try {
+                val rootOk = rootInstaller.checkAvailability()
+                val file = LogShareHelper.collectLogs(context, rootOk)
+                val uri = FileProvider.getUriForFile(
+                    context,
+                    "${BuildConfig.APPLICATION_ID}.fileprovider",
+                    file
+                )
+                val intent = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                val chooser = Intent.createChooser(intent, "Compartilhar logs")
+                    .apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
+                withContext(Dispatchers.Main) {
+                    context.startActivity(chooser)
+                }
+            } catch (e: Exception) {
+                _logShareError.value = e.message ?: "Erro ao gerar logs"
+            } finally {
+                _isGeneratingLogs.value = false
+            }
+        }
     }
 }

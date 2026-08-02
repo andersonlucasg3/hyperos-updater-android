@@ -32,6 +32,8 @@ fun SettingsTab(
     val skipped by viewModel.skippedVersions.collectAsState()
     val selfUpdateState by viewModel.selfUpdateState.collectAsState()
     val selfUpdateDownload by viewModel.selfUpdateDownload.collectAsState()
+    val isGeneratingLogs by viewModel.isGeneratingLogs.collectAsState()
+    val logShareError by viewModel.logShareError.collectAsState()
     val context = LocalContext.current
 
     Scaffold(
@@ -340,6 +342,48 @@ fun SettingsTab(
                                 }
                             }
                         }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // Suporte Section: log sharing
+            Text("Suporte", style = MaterialTheme.typography.titleMedium)
+            Spacer(modifier = Modifier.height(8.dp))
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        "Precisa reportar um problema? Envie os logs do app para o desenvolvedor.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Button(
+                        onClick = { viewModel.shareLogs(context) },
+                        enabled = !isGeneratingLogs
+                    ) {
+                        if (isGeneratingLogs) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.onPrimary
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Gerando logs...")
+                        } else {
+                            Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Compartilhar logs")
+                        }
+                    }
+                    if (logShareError != null) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            logShareError!!,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
                     }
                 }
             }
