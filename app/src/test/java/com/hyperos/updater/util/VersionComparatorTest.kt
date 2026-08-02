@@ -355,4 +355,102 @@ class VersionComparatorTest {
         assertTrue(VersionComparator.isSameLine("OS2.0.206.0.VMXMIXM", "OS2.0.207.0.VMXMIXM"))
         assertFalse(VersionComparator.isSameLine("OS2.0.206.0.VMXMIXM", "OS2.0.207.0.VMXCNXM"))
     }
+
+    // ── isNewer / isSameLine – VCS/build hash segments are metadata ───────────
+
+    @Test
+    fun `isNewer – Tailscale-style versions with different hashes are same line (newer numeric wins)`() {
+        // 1.98.8-t07c51dd63-g3b24a1d04 vs 1.102.0-t11aabbcc22-g4455667788
+        // Hashes are skipped → both plain-line, numeric [1,102,0] > [1,98,8]
+        assertTrue(VersionComparator.isNewer(
+            "1.98.8-t07c51dd63-g3b24a1d04",
+            "1.102.0-t11aabbcc22-g4455667788"
+        ))
+        assertFalse(VersionComparator.isNewer(
+            "1.102.0-t11aabbcc22-g4455667788",
+            "1.98.8-t07c51dd63-g3b24a1d04"
+        ))
+    }
+
+    @Test
+    fun `isNewer – hash-suffixed versions with same numeric core are not newer either way`() {
+        // 1.98.8-taaaaaa vs 1.98.8-tbbbbbb: same line (empty), same numeric core → not newer
+        assertFalse(VersionComparator.isNewer("1.98.8-taaaaaa", "1.98.8-tbbbbbb"))
+        assertFalse(VersionComparator.isNewer("1.98.8-tbbbbbb", "1.98.8-taaaaaa"))
+    }
+
+    @Test
+    fun `isNewer – hash-suffixed version is same line as plain numeric`() {
+        // 1.98.8-t07c51dd63 (line "", hash skipped) vs 1.98.9 (line "") → same line, newer numeric
+        assertTrue(VersionComparator.isNewer("1.98.8-t07c51dd63", "1.98.9"))
+        assertFalse(VersionComparator.isNewer("1.98.9", "1.98.8-t07c51dd63"))
+    }
+
+    @Test
+    fun `isSameLine – hash-suffixed and plain numeric are same line`() {
+        assertTrue(VersionComparator.isSameLine("1.98.8-t07c51dd63", "1.98.9"))
+        assertTrue(VersionComparator.isSameLine("1.98.8-t07c51dd63-g3b24a1d04", "1.102.0"))
+    }
+
+    @Test
+    fun `isNewer – g-prefix hash (git describe) is also skipped`() {
+        // 1.98.8-g3b24a1d04 → hash skipped → plain line vs 1.99.0 → newer
+        assertTrue(VersionComparator.isNewer("1.98.8-g3b24a1d04", "1.99.0"))
+    }
+
+    @Test
+    fun `isNewer – bare hex hash (no prefix) is skipped`() {
+        // 1.0.0-07c51dd63 → hash skipped → plain line
+        assertTrue(VersionComparator.isNewer("1.0.0-07c51dd63", "1.0.1"))
+    }
+
+    @Test
+    fun `isNewer – hash segment length less than 6 is NOT skipped (treated as qualifier)`() {
+        // 1.0.0-a1b2c (5 hex chars) → qualifier is "a1b2c", different from plain → incomparable
+        // "a1b2c" is 5 chars → does NOT match {6,}
+        assertFalse(VersionComparator.isNewer("1.0.0-a1b2c", "1.0.1"))
+        assertFalse(VersionComparator.isNewer("1.0.1", "1.0.0-a1b2c"))
+    }
+
+    // ── Regression: real qualifiers still gate lines ──────────────────────────
+
+    @Test
+    fun `regression – global vs cn still incomparable`() {
+        assertFalse(VersionComparator.isNewer("1.2.3-global", "1.2.4-cn"))
+        assertFalse(VersionComparator.isNewer("1.2.4-cn", "1.2.3-global"))
+    }
+
+    @Test
+    fun `regression – A vs R still incomparable`() {
+        assertFalse(VersionComparator.isNewer("0.0.0-A", "0.0.0-R"))
+        assertFalse(VersionComparator.isNewer("0.0.0-R", "0.0.0-A"))
+    }
+
+    @Test
+    fun `regression – beta vs rc_1 still different lines`() {
+        assertFalse(VersionComparator.isNewer("1.2.3-beta", "1.2.3-rc.1"))
+        assertFalse(VersionComparator.isNewer("1.2.3-rc.1", "1.2.3-beta"))
+    }
+
+    @Test
+    fun `regression – build suffix with non-hex qualifier still works`() {
+        // "build" contains non-hex letters → NOT hash-like → qualifier is "build.5" vs "build.10"
+        assertFalse(VersionComparator.isNewer("2.0-build.5", "2.0-build.10"))
+        assertFalse(VersionComparator.isNewer("2.0-build.10", "2.0-build.5"))
+    }
+
+    @Test
+    fun `isNewer – qualifier plus hash tail (hash in tail is ignored, qualifier still gates)`() {
+        // 1.2.3-beta-t07c51dd63 → qualifier "beta" (hash filtered out)
+        // 1.2.4-beta-gaabbccdd → qualifier "beta" → same line, newer numeric
+        assertTrue(VersionComparator.isNewer(
+            "1.2.3-beta-t07c51dd63",
+            "1.2.4-beta-gaabbccdd"
+        ))
+        // 1.2.3-beta-t07c51dd63 vs 1.2.4-rc.1 → qualifier "beta" vs "rc.1" → different lines
+        assertFalse(VersionComparator.isNewer(
+            "1.2.3-beta-t07c51dd63",
+            "1.2.4-rc.1"
+        ))
+    }
 }

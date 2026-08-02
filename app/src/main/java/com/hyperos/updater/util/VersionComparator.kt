@@ -20,6 +20,18 @@ package com.hyperos.updater.util
  * is exact (after normalisation): `beta` ≠ `rc.1` → different lines.  This is a
  * deliberate simplification — finer-grained prerelease ordering is out of scope.
  *
+ * ## Build metadata (VCS hashes)
+ *
+ * Segments that look like VCS/build hashes (`[tg]?[0-9a-f]{6,}`, case-insensitive) are
+ * treated as **build metadata**, not version-line qualifiers.  They are skipped when
+ * extracting the qualifier, so e.g. Tailscale versions `1.98.8-t07c51dd63-g3b24a1d04`
+ * and `1.102.0-t11aabbcc22-g4455667788` are both plain-line (empty qualifier) and
+ * compare by numeric core alone.
+ *
+ * A version whose *only* non-numeric segments are hash-like has **no qualifier** — it
+ * is on the same line as a plain numeric version.  If there are non-hash qualifier
+ * segments (e.g. `1.2.3-beta-t07c51dd63`) the non-hash segments still form the line.
+ *
  * ## MIUI / HyperOS format
  *
  * For versions starting with `OS` (e.g. `OS2.0.206.0.VMXMIXM`) the region suffix
@@ -123,12 +135,42 @@ object VersionComparator {
         return if (last.any { it.isLetter() }) last.lowercase() else ""
     }
 
+    /**
+     * Extracts the semantic line qualifier, skipping VCS/build hash segments.
+     *
+     * Hash-like segments (matching `[tg]?[0-9a-f]{6,}` case-insensitively) are
+     * treated as build metadata — they are ignored both when finding the qualifier
+     * start and when joining the qualifier tail.  A version whose only non-numeric
+     * segments are hash-like has NO qualifier (empty string).
+     *
+     * Example: `1.98.8-t07c51dd63-g3b24a1d04` → qualifier `""` (plain line).
+     */
     private fun extractSemanticLine(version: String): String {
         val parts = version.split(".", "-", "_")
-        val qualifierStart = parts.indexOfFirst { seg -> !seg.all { it.isDigit() } }
-        if (qualifierStart == -1) return ""  // all numeric → no qualifier
-        return parts.drop(qualifierStart).joinToString(".").lowercase()
+        val qualifierStart = parts.indexOfFirst { seg ->
+            !seg.all { it.isDigit() } && !isHashLikeSegment(seg)
+        }
+        if (qualifierStart == -1) return ""  // all numeric or hash → no qualifier
+        return parts.drop(qualifierStart)
+            .filterNot { isHashLikeSegment(it) }
+            .joinToString(".")
+            .lowercase()
     }
+
+    /**
+     * Returns `true` when [seg] looks like a VCS/build hash rather than a version
+     * qualifier.
+     *
+     * Matches (case-insensitive) `[tg]?[0-9a-f]{6,}`:
+     * - Optional `t` (tag) or `g` (git-describe) prefix
+     * - Followed by ≥ 6 hexadecimal characters
+     *
+     * Examples: `t07c51dd63`, `g3b24a1d04`, bare `07c51dd63`, `aaaaaa`.
+     * Non-matches: `global` (non-hex letters), `beta`/`rc` (too short, non-hex),
+     * `A`/`cn` (too short), `build` (non-hex).
+     */
+    private fun isHashLikeSegment(seg: String): Boolean =
+        seg.matches(Regex("^[tg]?[0-9a-f]{6,}$", RegexOption.IGNORE_CASE))
 
     // ── MIUI-specific helpers ────────────────────────────────────────────────
 
