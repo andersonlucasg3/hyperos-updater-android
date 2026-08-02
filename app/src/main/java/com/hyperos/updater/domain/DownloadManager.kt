@@ -391,8 +391,20 @@ class DownloadManager @Inject constructor(
             // PackageInstaller.commit() REQUIRES a mutable PendingIntent — the framework
             // writes status extras (EXTRA_STATUS, EXTRA_STATUS_MESSAGE, etc.) into the intent
             // before broadcasting. This is the documented exception to the immutability rule.
-            val dummyIntent = Intent("com.hyperos.updater.INSTALL_DONE")
-            val pendingIntent = android.app.PendingIntent.getBroadcast(app, sessionId, dummyIntent, android.app.PendingIntent.FLAG_MUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT)
+            // However, on Android 14+ (target SDK 34+) a FLAG_MUTABLE PendingIntent with an
+            // *implicit* intent is disallowed — getBroadcast() throws. Fix: make the intent
+            // explicit via setPackage so FLAG_MUTABLE is accepted. We don't register a receiver
+            // for this action (install confirmation uses polling via scheduleInstallPoll), so the
+            // broadcast silently drops — the status PendingIntent just needs to be syntactically
+            // valid for commit() to proceed.
+            // Ref: https://stackoverflow.com/a/77691101/4726718
+            val statusIntent = Intent("com.hyperos.updater.INSTALL_DONE").apply {
+                setPackage(app.packageName)
+            }
+            val pendingIntent = android.app.PendingIntent.getBroadcast(
+                app, sessionId, statusIntent,
+                android.app.PendingIntent.FLAG_MUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT
+            )
             session.commit(pendingIntent.intentSender)
             session.close()
             Log.i("DownloadManager", "Session install $sessionId")
@@ -416,8 +428,20 @@ class DownloadManager @Inject constructor(
             // PackageInstaller.commit() REQUIRES a mutable PendingIntent — the framework
             // writes status extras (EXTRA_STATUS, EXTRA_STATUS_MESSAGE, etc.) into the intent
             // before broadcasting. This is the documented exception to the immutability rule.
-            val dummyIntent = Intent("com.hyperos.updater.INSTALL_DONE")
-            val pendingIntent = android.app.PendingIntent.getBroadcast(app, sessionId, dummyIntent, android.app.PendingIntent.FLAG_MUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT)
+            // However, on Android 14+ (target SDK 34+) a FLAG_MUTABLE PendingIntent with an
+            // *implicit* intent is disallowed — getBroadcast() throws. Fix: make the intent
+            // explicit via setPackage so FLAG_MUTABLE is accepted. We don't register a receiver
+            // for this action (install confirmation uses polling via scheduleInstallPoll), so the
+            // broadcast silently drops — the status PendingIntent just needs to be syntactically
+            // valid for commit() to proceed.
+            // Ref: https://stackoverflow.com/a/77691101/4726718
+            val statusIntent = Intent("com.hyperos.updater.INSTALL_DONE").apply {
+                setPackage(app.packageName)
+            }
+            val pendingIntent = android.app.PendingIntent.getBroadcast(
+                app, sessionId, statusIntent,
+                android.app.PendingIntent.FLAG_MUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT
+            )
             session.commit(pendingIntent.intentSender); session.close()
             Log.i("DownloadManager", "Multi-session $sessionId: ${apkFiles.size} splits")
             null
