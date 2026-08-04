@@ -387,9 +387,16 @@ fun AppDetailScreen(
                                     Icon(Icons.Default.CheckCircle, contentDescription = null,
                                         tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
                                 } else if (svDl?.progress?.status == DownloadStatus.ERROR) {
-                                    IconButton(onClick = { viewModel.downloadManager.dismissDownload(svKey) }) {
-                                        Icon(Icons.Default.Error, contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(20.dp))
+                                    if (svDl.progress.canUseSystemInstaller) {
+                                        IconButton(onClick = { viewModel.downloadManager.openSystemInstaller(svKey) }) {
+                                            Icon(Icons.Default.InstallMobile, contentDescription = "Abrir instalador do sistema",
+                                                tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                                        }
+                                    } else {
+                                        IconButton(onClick = { viewModel.downloadManager.dismissDownload(svKey) }) {
+                                            Icon(Icons.Default.Error, contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(20.dp))
+                                        }
                                     }
                                 } else if (svDl?.progress?.status == DownloadStatus.AWAITING_INSTALL) {
                                     IconButton(onClick = { viewModel.downloadManager.retryInstall(svKey) }) {
@@ -476,6 +483,7 @@ fun AppDetailScreen(
                         }},
                         onCancel = { viewModel.downloadManager.cancelDownload(dlKey) },
                         onRetry = { viewModel.downloadManager.retryInstall(dlKey) },
+                        onSystemInstaller = { viewModel.downloadManager.openSystemInstaller(dlKey) },
                         onDismiss = { viewModel.downloadManager.dismissDownload(dlKey) }
                     )
                 }
@@ -507,6 +515,7 @@ fun AppDetailScreen(
                         },
                         onCancel = { viewModel.downloadManager.cancelDownload(dlKey) },
                         onRetry = { viewModel.downloadManager.retryInstall(dlKey) },
+                        onSystemInstaller = { viewModel.downloadManager.openSystemInstaller(dlKey) },
                         onDismiss = { viewModel.downloadManager.dismissDownload(dlKey) }
                     )
                 }
@@ -539,6 +548,7 @@ fun AppDetailScreen(
                         },
                         onCancel = { viewModel.downloadManager.cancelDownload(dlKey) },
                         onRetry = { viewModel.downloadManager.retryInstall(dlKey) },
+                        onSystemInstaller = { viewModel.downloadManager.openSystemInstaller(dlKey) },
                         onDismiss = { viewModel.downloadManager.dismissDownload(dlKey) }
                     )
                 }
@@ -568,6 +578,7 @@ fun AppDetailScreen(
                         },
                         onCancel = { viewModel.downloadManager.cancelDownload(dlKey) },
                         onRetry = { viewModel.downloadManager.retryInstall(dlKey) },
+                        onSystemInstaller = { viewModel.downloadManager.openSystemInstaller(dlKey) },
                         onDismiss = { viewModel.downloadManager.dismissDownload(dlKey) }
                     )
                 }
@@ -702,6 +713,7 @@ private fun VersionHistoryCard(
     onDownload: () -> Unit,
     onCancel: () -> Unit,
     onRetry: () -> Unit,
+    onSystemInstaller: () -> Unit,
     onDismiss: () -> Unit
 ) {
     Card(modifier = Modifier.fillMaxWidth()) {
@@ -772,9 +784,16 @@ private fun VersionHistoryCard(
                             }
                         }
                         download?.progress?.status == DownloadStatus.ERROR -> {
-                            IconButton(onClick = onDismiss) {
-                                Icon(Icons.Default.Error, contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.error)
+                            if (download.progress.canUseSystemInstaller) {
+                                IconButton(onClick = onSystemInstaller) {
+                                    Icon(Icons.Default.InstallMobile, contentDescription = "Abrir instalador do sistema",
+                                        tint = MaterialTheme.colorScheme.primary)
+                                }
+                            } else {
+                                IconButton(onClick = onDismiss) {
+                                    Icon(Icons.Default.Error, contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.error)
+                                }
                             }
                         }
                         else -> {

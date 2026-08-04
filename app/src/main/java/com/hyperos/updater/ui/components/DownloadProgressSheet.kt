@@ -20,7 +20,9 @@ data class DownloadProgress(
     val totalBytes: Long = 0,
     val speedBytesPerSec: Long = 0,
     val status: DownloadStatus = DownloadStatus.PREPARING,
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
+    /** True when the downloaded file is a single APK (not a bundle) and can be opened via the system package installer. */
+    val canUseSystemInstaller: Boolean = false
 )
 
 enum class DownloadStatus {

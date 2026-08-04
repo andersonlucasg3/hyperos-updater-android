@@ -83,8 +83,15 @@ fun DownloadsScreen(
                                             tint = MaterialTheme.colorScheme.primary)
                                     }
                                     DownloadStatus.ERROR, DownloadStatus.CANCELLED -> {
-                                        IconButton(onClick = { viewModel.downloadManager.dismissDownload(dl.key) }) {
-                                            Icon(Icons.Default.Close, contentDescription = "Dismiss")
+                                        if (dl.progress.status == DownloadStatus.ERROR && dl.progress.canUseSystemInstaller) {
+                                            IconButton(onClick = { viewModel.downloadManager.openSystemInstaller(dl.key) }) {
+                                                Icon(Icons.Default.InstallMobile, contentDescription = "Abrir instalador do sistema",
+                                                    tint = MaterialTheme.colorScheme.primary)
+                                            }
+                                        } else {
+                                            IconButton(onClick = { viewModel.downloadManager.dismissDownload(dl.key) }) {
+                                                Icon(Icons.Default.Close, contentDescription = "Dismiss")
+                                            }
                                         }
                                     }
                                 }

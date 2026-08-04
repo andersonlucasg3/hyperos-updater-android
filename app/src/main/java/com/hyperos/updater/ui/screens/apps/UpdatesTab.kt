@@ -192,6 +192,9 @@ fun UpdatesTab(
                                         dl.progress.status == DownloadStatus.COMPLETED -> Icon(Icons.Default.CheckCircle, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                                         dl.progress.status == DownloadStatus.AWAITING_INSTALL -> IconButton(onClick = { viewModel.downloadManager.retryInstall(dlKey) }) {
                                             Icon(Icons.Default.InstallMobile, contentDescription = "Install", tint = MaterialTheme.colorScheme.primary) }
+                                        dl.progress.status == DownloadStatus.ERROR && dl.progress.canUseSystemInstaller ->
+                                            IconButton(onClick = { viewModel.downloadManager.openSystemInstaller(dlKey) }) {
+                                                Icon(Icons.Default.InstallMobile, contentDescription = "Abrir instalador do sistema", tint = MaterialTheme.colorScheme.primary) }
                                         else -> IconButton(onClick = { viewModel.downloadManager.dismissDownload(dlKey) }) {
                                             Icon(Icons.Default.Error, contentDescription = null, tint = MaterialTheme.colorScheme.error) }
                                     }

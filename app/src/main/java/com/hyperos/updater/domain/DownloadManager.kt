@@ -115,14 +115,15 @@ class DownloadManager @Inject constructor(
                     Log.w("DownloadManager", "Wear OS APK detected, blocking install: ${finalFile.name}")
                     _downloads.update { it + (key to ActiveDownload(key, appName, finalFile.name,
                         DownloadProgress(fileName = finalFile.name, status = DownloadStatus.ERROR,
-                            errorMessage = "Este APK é para Wear OS (relógio), não para o telefone"))) }
+                            errorMessage = "Este APK é para Wear OS (relógio), não para o telefone",
+                            canUseSystemInstaller = false))) }
                     return@launch
                 }
 
                 runInstall(finalFile, key, appName, finalFile.name)
             } catch (e: Exception) {
                 Log.e("DownloadManager", "Download failed: $key", e)
-                _downloads.update { it + (key to ActiveDownload(key, appName, fileName, DownloadProgress(fileName = fileName, status = DownloadStatus.ERROR, errorMessage = e.message ?: e.javaClass.simpleName))) }
+                _downloads.update { it + (key to ActiveDownload(key, appName, fileName, DownloadProgress(fileName = fileName, status = DownloadStatus.ERROR, errorMessage = e.message ?: e.javaClass.simpleName, canUseSystemInstaller = false))) }
             }
         }
     }
@@ -144,6 +145,39 @@ class DownloadManager @Inject constructor(
         val file = File(downloadsDir, dl.fileName)
         if (file.exists() && file.length() > 0) {
             runInstall(file, key, dl.appName, dl.fileName)
+        }
+    }
+
+    /**
+     * Opens the downloaded file via the system package installer (ACTION_VIEW).
+     * This is the user-initiated fallback: when the in-app install chain fails,
+     * the user can tap a button to let Android's own installer handle the APK.
+     * Only works for single APKs — split bundles (.xapk/.apkm) cannot be
+     * installed this way and will show a clear error.
+     */
+    fun openSystemInstaller(key: String) {
+        val dl = _downloads.value[key] ?: return
+        val file = File(downloadsDir, dl.fileName)
+        if (!file.exists() || file.length() == 0L) {
+            Log.w("DownloadManager", "openSystemInstaller: file not found for $key")
+            return
+        }
+        val ext = file.name.substringAfterLast('.', "").lowercase()
+        if (ext in setOf("xapk", "apkm", "apks")) {
+            Log.w("DownloadManager", "openSystemInstaller: cannot open bundle $key via system installer")
+            return
+        }
+        try {
+            val uri = FileProvider.getUriForFile(app, "${app.packageName}.fileprovider", file)
+            val intent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, "application/vnd.android.package-archive")
+                flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK
+                putExtra(Intent.EXTRA_NOT_UNKNOWN_SOURCE, true)
+            }
+            app.startActivity(intent)
+            Log.i("DownloadManager", "System installer opened for ${file.name}")
+        } catch (e: Exception) {
+            Log.e("DownloadManager", "openSystemInstaller failed for $key: ${e.message}")
         }
     }
 
@@ -169,10 +203,21 @@ class DownloadManager @Inject constructor(
                 if (finalStatus == DownloadStatus.AWAITING_INSTALL) {
                     scheduleInstallPoll(file, key, appName, fileName)
                 }
-                _downloads.update { it + (key to ActiveDownload(key, appName, fileName, DownloadProgress(fileName = fileName, status = finalStatus, errorMessage = if (finalStatus == DownloadStatus.ERROR) result else null))) }
+                // System installer fallback: single APKs can be opened via the system
+                // package installer. Split bundles (.xapk/.apkm) cannot — they need
+                // the in-app session installer which handles split dependencies.
+                val isSingleApk = file.name.substringAfterLast('.', "").lowercase() == "apk"
+                _downloads.update { it + (key to ActiveDownload(key, appName, fileName,
+                    DownloadProgress(fileName = fileName, status = finalStatus,
+                        errorMessage = if (finalStatus == DownloadStatus.ERROR) result else null,
+                        canUseSystemInstaller = finalStatus == DownloadStatus.ERROR && isSingleApk && file.exists()))) }
             } catch (e: Exception) {
                 Log.e("DownloadManager", "Install failed: $key", e)
-                _downloads.update { it + (key to ActiveDownload(key, appName, fileName, DownloadProgress(fileName = fileName, status = DownloadStatus.ERROR, errorMessage = e.message ?: e.javaClass.simpleName))) }
+                val isSingleApk = file.name.substringAfterLast('.', "").lowercase() == "apk"
+                _downloads.update { it + (key to ActiveDownload(key, appName, fileName,
+                    DownloadProgress(fileName = fileName, status = DownloadStatus.ERROR,
+                        errorMessage = e.message ?: e.javaClass.simpleName,
+                        canUseSystemInstaller = isSingleApk && file.exists()))) }
             }
         }
     }
@@ -478,10 +523,12 @@ class DownloadManager @Inject constructor(
             // INSTALL_FAILED_MISSING_SPLIT by design).
             val sessionResult = sessionInstallMulti(apkFiles)
             if (sessionResult == null) return null
-            // Session failed — don't silently retry root per-split (doomed for real
-            // split bundles). Surface the error clearly so the user knows the bundle
-            // may be incomplete for this device.
-            return "Bundle incompleto: ${sessionResult} — split ausente ou incompatível com este dispositivo"
+            // Session failed — bundles cannot be installed via the system installer
+            // (Android's package installer doesn't handle split dependencies).
+            // Surface a clear error so the user knows this bundle needs manual
+            // extraction or a different source.
+            return "Pacote dividido (split) — o instalador do sistema não suporta este formato. " +
+                "Erro: ${sessionResult}. Tente baixar de outra fonte ou extraia manualmente."
         } catch (e: Exception) { return "Split APK extract failed: ${e.message}" }
     }
 }

@@ -151,10 +151,17 @@ fun AppSearchScreen(
                                             IconButton(onClick = { viewModel.downloadManager.dismissDownload(dlKey) }) {
                                                 Icon(Icons.Default.CheckCircle, contentDescription = "Done", tint = MaterialTheme.colorScheme.primary)
                                             }
-                                        DownloadStatus.ERROR, DownloadStatus.CANCELLED ->
-                                            IconButton(onClick = { viewModel.downloadManager.dismissDownload(dlKey) }) {
-                                                Icon(Icons.Default.Error, contentDescription = "Dismiss", tint = MaterialTheme.colorScheme.error)
+                                        DownloadStatus.ERROR, DownloadStatus.CANCELLED -> {
+                                            if (dl.progress.status == DownloadStatus.ERROR && dl.progress.canUseSystemInstaller) {
+                                                IconButton(onClick = { viewModel.downloadManager.openSystemInstaller(dlKey) }) {
+                                                    Icon(Icons.Default.InstallMobile, contentDescription = "Abrir instalador do sistema", tint = MaterialTheme.colorScheme.primary)
+                                                }
+                                            } else {
+                                                IconButton(onClick = { viewModel.downloadManager.dismissDownload(dlKey) }) {
+                                                    Icon(Icons.Default.Error, contentDescription = "Dismiss", tint = MaterialTheme.colorScheme.error)
+                                                }
                                             }
+                                        }
                                     }
                                 } else {
                                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
