@@ -28,6 +28,12 @@ class PackageManagerInstaller @Inject constructor(
      *   (SAI-style installers register for these extensions; octet-stream
      *    lets the system show all capable handlers.)
      *
+     * **Bundle chooser (v1.5.2):** split bundles (.xapk/.apkm/.apks) are
+     * launched via [Intent.createChooser] so the user explicitly picks
+     * SAI or their preferred split-APK installer — the stock MIUI installer
+     * must not silently capture the intent and fail with MISSING_SPLIT.
+     * Plain `.apk` files still use a direct ACTION_VIEW for convenience.
+     *
      * @return true if the intent was launched successfully.
      */
     fun openInstallIntent(file: File): Boolean {
@@ -43,13 +49,21 @@ class PackageManagerInstaller @Inject constructor(
                 "${context.packageName}.fileprovider",
                 file
             )
-            val intent = Intent(Intent.ACTION_VIEW).apply {
+            val viewIntent = Intent(Intent.ACTION_VIEW).apply {
                 setDataAndType(uri, mime)
                 flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK
                 putExtra(Intent.EXTRA_NOT_UNKNOWN_SOURCE, true)
+                putExtra(Intent.EXTRA_TITLE, file.name)
             }
-            context.startActivity(intent)
-            Log.i("PackageManagerInstaller", "System installer opened for ${file.name} (mime=$mime)")
+            val isBundle = ext in setOf("xapk", "apkm", "apks")
+            val launchIntent = if (isBundle) {
+                Log.i("PackageManagerInstaller", "Opening bundle chooser for ${file.name} (mime=$mime)")
+                Intent.createChooser(viewIntent, "Instalar com…")
+            } else {
+                Log.i("PackageManagerInstaller", "System installer opened directly for ${file.name} (mime=$mime)")
+                viewIntent
+            }
+            context.startActivity(launchIntent)
             true
         } catch (e: Exception) {
             Log.e("PackageManagerInstaller", "Failed to open installer for ${file.name}: ${e.message}")
