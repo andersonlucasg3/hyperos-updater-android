@@ -5,10 +5,8 @@ import android.util.Log
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
-import com.hyperos.updater.domain.installer.InstallResult
-import com.hyperos.updater.domain.installer.RootApkInstaller
+import com.hyperos.updater.domain.DownloadManager
 import com.hyperos.updater.domain.model.AppUpdate
-import com.hyperos.updater.domain.model.AppType
 import com.hyperos.updater.domain.model.UpdateSource
 import com.hyperos.updater.domain.repository.PreferencesRepository
 import com.hyperos.updater.domain.usecase.CheckSystemAppUpdatesUseCase
@@ -28,7 +26,7 @@ class AppCheckWorker @AssistedInject constructor(
     private val notificationHelper: NotificationHelper,
     private val preferencesRepository: PreferencesRepository,
     private val downloadUseCase: DownloadUpdateUseCase,
-    private val rootInstaller: RootApkInstaller,
+    private val downloadManager: DownloadManager,
     private val memeOsService: com.hyperos.updater.data.remote.MemeOsService
 ) : CoroutineWorker(context, params) {
 
@@ -58,13 +56,14 @@ class AppCheckWorker @AssistedInject constructor(
                 return Result.success()
             }
 
-            // Auto-update mode: download and install each update silently
+            // Auto-update ON: download each update in background, then notify.
+            // Silent install is impossible without root/session — the user taps
+            // the notification to install via the system installer.
             val successNames = mutableListOf<String>()
             val failDetails = mutableListOf<String>()
             val skippedNames = mutableListOf<String>()
 
-            val tempDir = File(applicationContext.cacheDir, "auto_update")
-            tempDir.mkdirs()
+            val downloadsDir = downloadManager.downloadsDirectory
 
             for (update in updates) {
                 // Find best source with a direct download URL
@@ -91,72 +90,39 @@ class AppCheckWorker @AssistedInject constructor(
                         continue
                     }
 
-                    val fileName = "${update.packageName}_${System.currentTimeMillis()}.apk"
-                    val apkFile = File(tempDir, fileName)
+                    val fileName = buildWorkerFileName(resolvedUrl, update.appName, directSource.version)
+                    val key = "worker_${update.packageName}"
 
-                    // Download
+                    // Download to the public downloads directory (same as DownloadManager)
                     Log.i(TAG, "Downloading ${update.appName} from ${directSource.source}")
-                    downloadUseCase.download(resolvedUrl, fileName, null, tempDir).collect {
+                    downloadUseCase.download(resolvedUrl, fileName, null, downloadsDir).collect {
                         // progress — just consume the flow
                     }
 
+                    val apkFile = File(downloadsDir, fileName)
                     if (!apkFile.exists() || apkFile.length() == 0L) {
                         failDetails.add("${update.appName}: download failed (empty file)")
                         continue
                     }
 
-                    // Install silently via root
-                    val isSystem = update.appType == AppType.SYSTEM
-                    val result = installSilently(apkFile, update.packageName, isSystem)
+                    // Register with DownloadManager so it appears in the Downloads tab
+                    downloadManager.registerCompletedDownload(key, update.appName, fileName)
 
-                    // Clean up APK
-                    apkFile.delete()
-
-                    when (result) {
-                        is InstallResult.Success -> {
-                            Log.i(TAG, "Installed ${update.appName}")
-                            successNames.add("${update.appName} (${update.latestVersion})")
-                        }
-                        is InstallResult.Failure -> {
-                            failDetails.add("${update.appName}: ${result.reason}")
-                        }
-                        is InstallResult.RootNotAvailable -> {
-                            failDetails.add("${update.appName}: root não disponível")
-                        }
-                    }
+                    Log.i(TAG, "Downloaded ${update.appName} (${update.latestVersion})")
+                    successNames.add("${update.appName} (${update.latestVersion})")
                 } catch (e: Exception) {
-                    Log.e(TAG, "Auto-update failed for ${update.appName}", e)
+                    Log.e(TAG, "Auto-update download failed for ${update.appName}", e)
                     failDetails.add("${update.appName}: ${e.message}")
                 }
             }
 
-            // Clean up temp dir
-            tempDir.deleteRecursively()
-
-            // Build details string
-            val details = buildString {
-                if (successNames.isNotEmpty()) {
-                    append("Installed: ")
-                    appendLine(successNames.joinToString(", "))
-                }
-                if (failDetails.isNotEmpty()) {
-                    append("Failed: ")
-                    appendLine(failDetails.joinToString(", "))
-                }
-                if (skippedNames.isNotEmpty()) {
-                    append("Skipped (no direct download): ")
-                    appendLine(skippedNames.joinToString(", "))
-                }
-            }.trimEnd()
-
-            notificationHelper.showAutoUpdateResults(
+            notificationHelper.showDownloadsReady(
                 successCount = successNames.size,
                 failCount = failDetails.size,
-                skippedCount = skippedNames.size,
-                details = details
+                skippedCount = skippedNames.size
             )
 
-            Log.i(TAG, "Auto-update complete: ${successNames.size} ok, ${failDetails.size} fail, ${skippedNames.size} skipped")
+            Log.i(TAG, "Auto-update complete: ${successNames.size} downloaded, ${failDetails.size} fail, ${skippedNames.size} skipped")
             Result.success()
         } catch (e: Exception) {
             Log.e(TAG, "Auto-update worker failed", e)
@@ -164,14 +130,21 @@ class AppCheckWorker @AssistedInject constructor(
         }
     }
 
-    private suspend fun installSilently(apkFile: File, packageName: String, isSystemApp: Boolean): InstallResult {
-        // Root only — no fallback in background (Session/Intent require user interaction)
-        return rootInstaller.install(apkFile, packageName, isSystemApp)
-    }
-
     companion object {
         private const val TAG = "AppCheckWorker"
         /** Sources that provide direct APK download URLs (no WebView/intermediary page needed). */
         private val DIRECT_DOWNLOAD_SOURCES = setOf(UpdateSource.APTOIDE, UpdateSource.GITHUB, UpdateSource.FDROID, UpdateSource.MEMEOS, UpdateSource.TENCENT)
     }
+}
+
+/** Builds a meaningful filename for auto-update downloads, mirroring DownloadManager's naming. */
+private fun buildWorkerFileName(url: String, appName: String, version: String): String {
+    val urlPath = url.substringBefore('?').substringAfterLast('/')
+    val ext = urlPath.substringAfterLast('.', "apk").lowercase()
+    val base = urlPath.substringBeforeLast('.')
+    // Use the URL's filename when meaningful; otherwise build from app+version
+    val meaningfulBase = base.isNotBlank() && base.length > 3 &&
+        !base.matches(Regex("^[0-9]+$")) && base.length < 40
+    val name = if (meaningfulBase) base else appName.replace(" ", "-")
+    return "$name-v$version.$ext"
 }

@@ -113,6 +113,57 @@ class NotificationHelper @Inject constructor(
         NotificationManagerCompat.from(context).notify(AUTO_UPDATE_NOTIFICATION_ID, notification)
     }
 
+    /**
+     * Posted by the auto-update worker after pre-downloading updates.
+     * Silent install is no longer possible (root/session removed), so the user
+     * must tap to install each update via the system installer.
+     */
+    fun showDownloadsReady(successCount: Int, failCount: Int, skippedCount: Int) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED) {
+            return
+        }
+
+        val intent = Intent(context, MainActivity::class.java).apply {
+            putExtra("screen", "downloads")
+        }
+        val pending = PendingIntent.getActivity(
+            context, 3, intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val title = "Atualizações prontas"
+        val body = buildString {
+            if (successCount > 0) {
+                append("$successCount atualização(ões) pronta(s) para instalar — toque para instalar")
+            }
+            if (failCount > 0) {
+                if (successCount > 0) append(" · ")
+                append("$failCount falha(s)")
+            }
+            if (skippedCount > 0) {
+                if (successCount > 0 || failCount > 0) append(" · ")
+                append("$skippedCount ignorada(s)")
+            }
+            if (successCount == 0 && failCount == 0 && skippedCount == 0) {
+                append("Nenhuma atualização encontrada")
+            }
+        }
+
+        val notification = NotificationCompat.Builder(context, HyperOsApp.CHANNEL_APP_UPDATES)
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setContentTitle(title)
+            .setContentText(body)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setContentIntent(pending)
+            .setAutoCancel(true)
+            .build()
+
+        NotificationManagerCompat.from(context).notify(AUTO_UPDATE_NOTIFICATION_ID, notification)
+    }
+
     companion object {
         const val OTA_NOTIFICATION_ID = 100
         const val APP_NOTIFICATION_ID = 200

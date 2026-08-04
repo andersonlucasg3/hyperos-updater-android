@@ -44,6 +44,13 @@ fun SettingsTab(
         ) {
             // Root Section
             Text("Root", style = MaterialTheme.typography.titleMedium)
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                "Root é usado apenas para captura completa de logs (Compartilhar Logs). " +
+                    "A instalação de apps é delegada ao instalador do sistema.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
             Spacer(modifier = Modifier.height(8.dp))
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(16.dp)) {
@@ -103,7 +110,7 @@ fun SettingsTab(
                     Column(modifier = Modifier.weight(1f)) {
                         Text("Atualização automática", style = MaterialTheme.typography.bodyLarge)
                         Text(
-                            "Baixa e instala atualizações automaticamente via root quando disponíveis",
+                            "Baixa atualizações automaticamente; a instalação abre no instalador do sistema",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -396,7 +403,7 @@ fun SettingsTab(
                     Text("About", style = MaterialTheme.typography.titleMedium)
                     Spacer(modifier = Modifier.height(8.dp))
                     Text("HyperOS Updater", style = MaterialTheme.typography.bodyMedium)
-                    Text("Version 1.0 · build ${com.hyperos.updater.BuildConfig.BUILD_TIME}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Version ${com.hyperos.updater.BuildConfig.VERSION_NAME} · build ${com.hyperos.updater.BuildConfig.BUILD_TIME}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text("Checks OTA system updates and installed app updates from multiple sources.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
