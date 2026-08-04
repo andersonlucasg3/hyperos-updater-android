@@ -124,6 +124,18 @@ class DownloadManager @Inject constructor(
                     return@launch
                 }
 
+                // Lone split guard: detect APKs that are just one split of an app
+                // (e.g. a config split captured from a store's variants page).
+                // The system installer rejects these with MISSING_SPLIT — block early.
+                if (isLoneSplitApk(finalFile)) {
+                    Log.w("DownloadManager", "Lone split APK detected, blocking install: ${finalFile.name}")
+                    _downloads.update { it + (key to ActiveDownload(key, appName, finalFile.name,
+                        DownloadProgress(fileName = finalFile.name, status = DownloadStatus.ERROR,
+                            errorMessage = "Este arquivo é apenas uma parte (split) do app — baixe o pacote completo/bundle na página de variantes",
+                            canUseSystemInstaller = false))) }
+                    return@launch
+                }
+
                 if (skipInstall) {
                     // Worker pre-download — leave in AWAITING_INSTALL so the user can tap to install
                     fileCache[key] = finalFile.name
@@ -294,6 +306,31 @@ class DownloadManager @Inject constructor(
         }
 
         return false
+    }
+
+    /**
+     * Detects lone split APKs — files that are just one config/dpi/abi split of an app,
+     * not a standalone installable package. The system installer rejects these with
+     * [INSTALL_FAILED_MISSING_SPLIT], so we block them early with a clear message.
+     *
+     * Only checks `.apk` files (bundles legitimately contain splits).
+     *
+     * Detection: [PackageManager.getPackageArchiveInfo] → [PackageInfo.splitNames].
+     * A split APK's manifest carries the `split` attribute, which populates this field.
+     * A standalone (base) APK has no split attribute → splitNames is null.
+     */
+    private fun isLoneSplitApk(file: File): Boolean {
+        val ext = file.name.substringAfterLast('.', "").lowercase()
+        if (ext != "apk") return false
+
+        return try {
+            val info = app.packageManager.getPackageArchiveInfo(file.absolutePath, 0) ?: return false
+            val splitNames = info.splitNames
+            !splitNames.isNullOrEmpty()
+        } catch (e: Exception) {
+            Log.w("DownloadManager", "Split check failed: ${e.message}")
+            false // fail-soft: if we can't read the APK, let install proceed
+        }
     }
 
     /** Delegates all installs to the system installer via ACTION_VIEW. */
