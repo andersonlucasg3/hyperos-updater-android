@@ -57,7 +57,10 @@ All ViewModels expose `StateFlow<UiState>`. Screens collect with `collectAsState
 Download progress uses `callbackFlow` with `trySend()` instead of `flow {}` to avoid Dispatchers.IO → Main emission violations.
 
 ### Shizuku via Reflection (REMOVED)
-Shizuku foi completamente removido do app. O provider, permissão, meta-data, dependências e código foram deletados. Root é o único método de instalação privilegiada. O fallback não-privilegiado é PackageInstaller.Session → Intent ACTION_VIEW.
+Shizuku foi completamente removido do app. O provider, permissão, meta-data, dependências e código foram deletados.
 
-### Root Install (primary)
-`RootApkInstaller` uses `su` with `pm install -S <size> -r -d -i com.android.vending` and stdin pipe. This is the only privileged install method. `-i com.android.vending` makes Android treat the install as Play Store-sourced, avoiding some system restrictions. 120s timeout on `waitFor()` to handle Magisk grant prompts.
+### Install Delegation (v1.5.0+)
+Toda instalação é delegada ao instalador do sistema. `PackageManagerInstaller.openInstallIntent()` usa `ACTION_VIEW` + `FileProvider`; bundles abrem via `Intent.createChooser("Instalar com…")` (v1.5.2) para evitar que o instalador stock MIUI capture o intent e falhe com MISSING_SPLIT. Métodos antigos de root/session (`RootApkInstaller`, session install) estão `@Deprecated` no código. Root é usado apenas para captura de logcat completo no `LogShareHelper`.
+
+### Root — Apenas para Logs
+`RootApkInstaller` ainda existe com `diagnoseAvailability()` para verificar disponibilidade, mas a instalação via `su pm install` não é mais usada. Root é usado exclusivamente para `LogShareHelper.runLogcat()` (logcat completo do sistema, 3000 linhas).

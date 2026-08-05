@@ -26,20 +26,70 @@ adb -s f10c4f767d7b logcat --pid=$(adb -s f10c4f767d7b shell pidof com.hyperos.u
 
 Clean Architecture with package-separated layers in a single `:app` module.
 
-- **data/** — Room entities/DAOs, Retrofit APIs, Jsoup scrapers (8 sources), repository implementations
-- **domain/** — Pure Kotlin: models, repository interfaces, use cases, installer abstraction (Root/PackageManager)
+- **data/** — Room entities/DAOs, Retrofit APIs, Jsoup scrapers (9 sources), repository implementations
+- **domain/** — Pure Kotlin: models, repository interfaces, use cases, installer abstraction (PackageManagerInstaller — delegates to system installer via ACTION_VIEW + FileProvider)
 - **ui/** — Jetpack Compose: 3 tabs (Find & Install, Updates, Settings), ViewModels, navigation, components
   - **ui/screens/detail/** — AppDetailActivity (standalone, registered in manifest) + AppDetailViewModel + AppDetailScreen; opened via info button (ⓘ) on Updates/Search cards. Modes: installed-app (packageName + appType) and search-origin (SEARCH_* extras). Sections: header, "Status da Versão" (auto-recheck), "Versões por Fonte" (download per source row), "Histórico de versões" (collapsible per-source groups, history endpoints for MemeOS/F-Droid/GitHub/APKMirror), "Ações" (Pular/Ocultar/Verificar). Download routing mirrors tabs: MEMEOS resolve-direct/WebView fallback, APTOIDE/GITHUB/FDROID/TENCENT direct, APKMIRROR/APKCOMBO/APKPURE/UPTODOWN WebView.
 - **di/** — Hilt modules (App, Network, Database, Installer, Repository)
-- **worker/** — WorkManager workers (AppCheckWorker only in v1) + NotificationHelper
-- **util/** — VersionComparator (with versionName-first `compare`), XiaomiApps, Extensions
+- **worker/** — WorkManager workers (AppCheckWorker: download-only) + NotificationHelper
+- **util/** — VersionComparator (with versionName-first `compare`, hash-metadata rule), XiaomiApps, Extensions, CrashLogger, LogShareHelper, AppNameMatcher
 
 Key pattern: `StateFlow` for UI state, `collectAsState()` in Composables, one-way data flow.
 
 ## Critical Discoveries
 
 ### ~~Shizuku~~ (REMOVED from app)
-Shizuku was completely removed. The manifest provider, `moe.shizuku.manager.permission.API_V23` permission, V3_SUPPORT meta-data, `newProcess()` reflection, stdin-pipe install via Shizuku, `ShizukuStatusIcon`, `ShizukuStatusBanner`, `ShizukuHelper`, and the `shizuku_enabled` DataStore pref have all been deleted. Root (`su`) is now the only privileged install method; fallback is PackageInstaller.Session → Intent.
+Shizuku was completely removed. The manifest provider, `moe.shizuku.manager.permission.API_V23` permission, V3_SUPPORT meta-data, `newProcess()` reflection, stdin-pipe install via Shizuku, `ShizukuStatusIcon`, `ShizukuStatusBanner`, `ShizukuHelper`, and the `shizuku_enabled` DataStore pref have all been deleted.
+
+### Install Delegation to System Installer (v1.5.0–v1.5.3)
+**The Root→Session→Intent chain was REMOVED from the dispatch path.** All installs now go through `PackageManagerInstaller.openInstallIntent()`:
+- `ACTION_VIEW` + `FileProvider` for every APK/bundle
+- Plain `.apk` → direct `startActivity(viewIntent)` — opens the system package installer
+- Bundles `.xapk`/`.apkm`/`.apks` → `Intent.createChooser(viewIntent, "Instalar com…")` (v1.5.2) — the chooser is **mandatory** because the MIUI stock installer silently captures bundle intents and fails with MISSING_SPLIT; the user must pick SAI or their preferred split-APK installer
+- Old root/session install methods (`rootInstallSingle`, `rootInstallMulti`, `sessionInstallSingle`, `sessionInstallMulti`) are `@Deprecated` on disk — root exists ONLY for full logcat capture in `LogShareHelper`
+- `executeInstall()` is the single dispatch point — calls `pkgInstaller.openInstallIntent()` for everything
+
+**Guard order** (post-download, pre-install):
+1. `adjustArchiveType(file)` — detect XAPK/APKM by ZIP content, rename if needed
+2. `isWearOsApk(file)` — Wear OS manifest scan (PackageManager + byte-level fallback)
+3. `isLoneSplitApk(file)` — `PackageInfo.splitNames` check (v1.5.1) — blocks lone config/DPI/ABI splits with PT guidance message
+4. Then delegate to `openInstallIntent`
+
+**Auto-update is now download-only:** `AppCheckWorker` downloads direct-URL updates in background, calls `registerCompletedDownload` (Downloads tab, `AWAITING_INSTALL`), posts "Atualizações prontas" notification via `NotificationHelper.showDownloadsReady` — silent install no longer exists. Settings auto-update subtitle: *"Baixa atualizações automaticamente; a instalação abre no instalador do sistema"*. Root section text: *"Root é usado apenas para captura completa de logs"*.
+
+### Log Sharing (v1.4.1)
+- `util/CrashLogger.kt` — uncaught-exception capture to `filesDir/crash`, keeps newest 10. Install via `CrashLogger.install(app)` FIRST in `Application.onCreate`.
+- `util/LogShareHelper.kt` — `suspend fun collectLogs(context, rootAvailable): File` → writes to `cacheDir/share/hyperos-logs-<timestamp>.txt`: app/device header + app logcat (2000 lines, self-UID) + full system logcat via `su` if root available (3000 lines) + newest 3 crash files. Uses `waitFor`-before-join discipline (15s timeout), truncates to 2MB.
+- Settings "Suporte" section: "Compartilhar logs" button → `FileProvider` URI + `ACTION_SEND` with chooser.
+
+### Double Status-Bar Inset Fix (v1.4.2)
+Outer `Scaffold` in `MainScreen.kt` sets `contentWindowInsets = WindowInsets(0,0,0,0)` to prevent double application of status-bar insets (the Activity calls `enableEdgeToEdge()` and inner content handles its own padding).
+
+### Fast-Path Phase-2 Skip Condition Changed (v1.4.3)
+Phase 2 (HTML scrapers: APKPure, APKCombo, APKMirror, MemeOs, Uptodown) now runs **UNLESS** a phase-1 API found an actual **newer version** (`VersionComparator.isNewer`). Old behavior: skipped if any phase-1 API knew the app at all — F-Droid knowing the app but lagging behind upstream would hide updates from scrapers. New: `phase1HasUpdate = phase1Results.any { isNewer(app.versionName, it.versionName) }` — only a genuinely newer result suppresses phase 2.
+
+Also in v1.4.3: 22 OkHttp response leaks closed — every `okHttpClient.newCall(request).execute()` now uses `.use {}` consistently across all 12 services in `data/remote/`. GitHub `repoMap` gained entries for `tailscale/tailscale-android`, `fdroid/fdroidclient`, `wireguard/wireguard-android`.
+
+### VCS Hash Segments as Build Metadata (v1.4.4)
+`VersionComparator.isHashLikeSegment(seg)` matches `^[tg]?[0-9a-f]{6,}$` (case-insensitive). Segments like `t07c51dd63`, `g3b24a1d04` are treated as **build metadata**, not version-line qualifiers. Tailscale `1.98.8-t<hash>-g<hash>` → plain-line (empty qualifier), compares by numeric core alone. A version whose only non-numeric segments are hash-like has **no qualifier** — same line as plain numeric.
+
+### AppNameMatcher — Tiered Matching (v1.4.5)
+`util/AppNameMatcher.kt` used by `tryApkMirror` (and other name-based lookups). Two tiers:
+1. Exact normalized match (lowercase, strip non-alphanumeric)
+2. ALL significant words (len ≥ 2) appear as **whole words** (`\b` boundary) in candidate
+No prefix/startsWith tier — prevents false matches like "Google Home" vs "Home Assist" (different apps), "Word" vs "Wordscapes". "Google" matches "Google Drive" via tier 2 (`\bgoogle\b`).
+
+### PendingIntent FLAG_MUTABLE Saga (v1.4.5→v1.4.7)
+`PackageInstaller.Session.commit()` requires `FLAG_MUTABLE` because the framework fills status extras into the PendingIntent. However, Android 14+ forbids `FLAG_MUTABLE` on **implicit** intents. Correct pattern: `Intent(action).setPackage(pkg)` (makes it explicit) + `FLAG_MUTABLE | FLAG_UPDATE_CURRENT`. The `FLAG_NO_CREATE` mention in Android's error message is boilerplate — the real fix is `setPackage()` + `FLAG_MUTABLE`. This pattern is preserved in the `@Deprecated` session methods for reference.
+
+### Compose State Delegation Race (v1.4.8)
+`UpdatesTab` snapshots `val s = scan` before multiple reads. The old code used `scan!!.first`, `scan!!.second` — the `!!` asserted on the State value, but between the null-check and the lambda body, `_scanProgress.value` could be set to `null` (end of scan), causing NPE. Snapshot captures the value once, eliminating the race.
+
+### ERROR State — System Installer Button (v1.4.9)
+`DownloadProgress.canUseSystemInstaller` is `true` when the downloaded file is a single APK that exists on disk but install failed. UI shows an `InstallMobile` icon button ("Abrir instalador do sistema") on error cards. Bundles (and download failures where no file exists) set `canUseSystemInstaller = false` — no installer button, only dismiss.
+
+### Lone-Split APK Guard (v1.5.1)
+`DownloadManager.isLoneSplitApk(file)` checks `PackageInfo.splitNames` — if non-null/non-empty, the APK is a lone config/DPI/ABI split, not a standalone installable. The system installer rejects these with `INSTALL_FAILED_MISSING_SPLIT`. Blocked early with PT message: *"Este arquivo é apenas uma parte (split) do app — baixe o pacote completo/bundle na página de variantes"*. Fail-soft: any read error → `false` (allows install). Only `.apk` files are checked (bundles legitimately contain splits).
 
 ### APKPure Version Detection
 Use `d.apkpure.com/b/APK/{pkg}?version=latest` with HEAD, `followRedirects(false)`, headers:
@@ -75,11 +125,8 @@ Use `VersionComparator.isNewer()` with semantic comparison — NOT `versionCode`
 Progress via `callbackFlow` with `trySend()` (not `flow {}` — violates Dispatchers.IO→Main invariant).
 Emissions throttled to 200ms intervals with 64KB buffer.
 
-### Root Install (su stdin pipe)
-Only privileged install method in v1. Uses `su` with `pm install -S <size> -r -d -i com.android.vending` and stdin pipe for APK data.
-Both `RootApkInstaller` and `DownloadManager.rootInstallSingle()` use 120s `waitFor` timeouts — Magisk may show a grant prompt that hangs if not dismissed.
-**Critical:** `waitFor(timeout)` must be called **before** joining reader threads (stdout/stderr). Joining first hangs forever if the process is stuck — the timeout is never reached. See "Root Install waitFor-Before-Join" below.
-`-i com.android.vending` makes Android believe the APK came from Play Store, avoiding some system restrictions.
+### Root Install (su stdin pipe) — @Deprecated since v1.5.0
+**Removed from dispatch chain.** The code still exists on disk (both `RootApkInstaller` and `DownloadManager.rootInstallSingle()`) but is `@Deprecated` and never called. Root is now used **only** for full system logcat capture in `LogShareHelper`. All installs are delegated to `PackageManagerInstaller.openInstallIntent()` (ACTION_VIEW + FileProvider).
 
 ### Aptoide API v7
 Public JSON API. Version check: `GET https://ws75.aptoide.com/api/7/getApp?package_name=<pkg>` → JSON path `nodes.meta.data.file.{vername,vercode,path}`.
@@ -91,7 +138,7 @@ Search: `GET https://ws75.aptoide.com/api/7/apps/search?query=<q>&limit=25`.
 1. GET the version page (e.g. `.../apps/{pkg}/{versionCode}`) → regex-extract `data-download-url` (dl=0 preferred, dl=1 fallback).
 2. GET that URL with `Referer` set to the version page → regex-extract `https://download.memeosupdates.com/…` signed URL.
 The signed URL serves the APK directly (`application/vnd.android.package-archive`, ~99MB). `exp` is an expiry timestamp — download soon after resolving.
-Callers in UI (UpdatesTab, SearchTab, AppSearchScreen) try resolution first; on null they fall back to WebView. AppCheckWorker resolves before silent download; on null it skips (same as other "requires manual download" sources).
+Callers in UI (UpdatesTab, SearchTab, AppSearchScreen) try resolution first; on null they fall back to WebView. AppCheckWorker resolves before download; on null it skips (same as other "requires manual download" sources).
 
 ### pickBest Version Comparator
 `pickBest()` in `AppUpdateRepositoryImpl` uses `VersionComparator.compare(versionNameA, versionCodeA, versionNameB, versionCodeB)`.
@@ -107,7 +154,7 @@ This gate is applied in **every** update-decision path:
 Concrete rule: `0.0.0` vs `0.0.0-R` (or `-global` vs `-cn`) are different lines → never offered as updates.
 
 ### XAPK/APKM Content Detection (adjustArchiveType)
-CDN URLs often lack file extensions, so a `.apk`-named file after download may actually be a split-APK bundle (XAPK/APKM). `DownloadManager.adjustArchiveType()` opens the downloaded file as a ZIP and checks: if there are inner `.apk` entries AND no root `AndroidManifest.xml`, it's a bundle → renames to `.xapk` → routes to `installSplitApk()`. A real single APK always has `AndroidManifest.xml` at the ZIP root. This fixes bundles arriving from extension-less CDN URLs.
+CDN URLs often lack file extensions, so a `.apk`-named file after download may actually be a split-APK bundle (XAPK/APKM). `DownloadManager.adjustArchiveType()` opens the downloaded file as a ZIP and checks: if there are inner `.apk` entries AND no root `AndroidManifest.xml`, it's a bundle → renames to `.xapk`. The bundle is then handed to `openInstallIntent` which uses `Intent.createChooser` so the user picks a SAI-style installer. A real single APK always has `AndroidManifest.xml` at the ZIP root. This fixes bundles arriving from extension-less CDN URLs.
 
 ### Scan Scoping: `.first()` to Avoid Eagerly Race
 `AppUpdatesViewModel.checkAllApps()` reads `preferencesRepository.showSystemApps.first()` (suspending, reads current DataStore value) instead of using the `showSystemApps` StateFlow directly. The StateFlow is `SharingStarted.Eagerly` with initial value `true`, but on cold start DataStore hasn't emitted yet — using the StateFlow would race the auto-scan and always include system apps on first open even when the user had them off. `.first()` suspends until DataStore emits the real persisted value.
@@ -115,7 +162,7 @@ CDN URLs often lack file extensions, so a `.apk`-named file after download may a
 When "Sistema" is off, the scan only launches the third-party job (system job is `null`). Stale system entries from a previous scan are kept in the list (not removed) because the removal pass only considers app types that were in the current scan scope.
 
 ### Self-Update via GitHub Releases
-`SelfUpdateService` checks `api.github.com/repos/andersonlucasg3/hyperos-updater-android/releases/latest` (public repo). Settings has a "Atualização do app" section with a manual "Verificar atualização" button — there is no periodic worker for self-update. States: `Idle`, `Checking`, `UpToDate`, `Available` (release with `.apk` asset), `Error`, `NoRelease`. When `Available`, download uses `DownloadManager.startDownload()` with the fixed key `"SELFUPDATE"` — the root install chain handles it (the APK is HyperOS-Updater itself, installed via `pm install -r`). Tags are expected like `v1.0.1`; the leading `v`/`V` is stripped by `SelfUpdateService`. Each release must have at least one `.apk` asset.
+`SelfUpdateService` checks `api.github.com/repos/andersonlucasg3/hyperos-updater-android/releases/latest` (public repo). Settings has a "Atualização do app" section with a manual "Verificar atualização" button — there is no periodic worker for self-update. States: `Idle`, `Checking`, `UpToDate`, `Available` (release with `.apk` asset), `Error`, `NoRelease`. When `Available`, download uses `DownloadManager.startDownload()` with the fixed key `"SELFUPDATE"` — install delegated to system installer like everything else. Tags are expected like `v1.0.1`; the leading `v`/`V` is stripped by `SelfUpdateService`. Each release must have at least one `.apk` asset.
 
 ### App Detail — History Per Source (Availability Matrix)
 
@@ -131,11 +178,11 @@ The detail page loads version history from dedicated endpoints, collapsed per so
 
 History loading is fail-soft per source — one failure does not block others. Load is triggered only for sources that appear in `sourceVersions`. In search-origin mode: only APKMirror (RSS slug from page URL) and MemeOS (package-name from page URL) attempt history.
 
-### Root Install waitFor-Before-Join
-`su` stdin-pipe installs use `process.waitFor(120, SECONDS)` **before** joining reader threads. The old code joined stdout/stderr reader threads first, which block until EOF (process exit). If the process hangs (e.g. behind a Magisk grant prompt), the join hangs forever and the timeout is never reached. The fix: `waitFor(timeout)` → `destroyForcibly()` on timeout → then `join(5s)` reader threads. Same pattern in both `DownloadManager.rootInstallSingle()` and `RootApkInstaller`.
+### Root Install waitFor-Before-Join — @Deprecated (kept for LogShareHelper reference)
+`su` stdin-pipe pattern (now used only in `LogShareHelper.runLogcat()`) uses `process.waitFor(15, SECONDS)` **before** joining reader threads. The old install code used 120s timeout. The pattern remains relevant for logcat capture: `waitFor(timeout)` → `destroyForcibly()` on timeout → then `join(5s)` reader threads.
 
-### Root Diagnosis (5 su candidates)
-`RootApkInstaller.diagnoseAvailability(promptTimeoutSeconds, probeTimeoutSeconds)` probes 5 su candidates in order: `su`, `/system/bin/su`, `/system/xbin/su`, `/sbin/su`, `/su/bin/su`. The first candidate gets the long prompt timeout (60s from "Solicitar acesso root", 10s from auto/refresh) — enough for the user to answer a Magisk/KernelSU grant dialog. Remaining candidates are quick probes (5-8s). The `RootDiagnosis` result (per-candidate `OK`, exit code, stderr, or timeout) is shown in Settings as `rootDiagnosis` for on-device debugging. `checkAvailability()` calls `diagnoseAvailability(10, 5)` internally. KernelSU is confirmed working.
+### Root Diagnosis (5 su candidates) — used only by LogShareHelper
+`RootApkInstaller` still exists with `diagnoseAvailability(promptTimeoutSeconds, probeTimeoutSeconds)` probing 5 su candidates: `su`, `/system/bin/su`, `/system/xbin/su`, `/sbin/su`, `/su/bin/su`. This is now used **only** for log sharing — `SettingsViewModel.shareLogs()` calls `rootInstaller.checkAvailability()` to determine whether full system logcat is possible. The `RootDiagnosis` result is no longer shown in Settings UI (Root section was replaced with the explanation text).
 
 ### APKCombo Always-WebView Rule
 APKCombo NEVER downloads directly — `ApkComboResult.downloadUrl` = `<appPage>/download/apk`, a real page that 403s via plain OkHttp (Cloudflare) but works in WebView. All download paths (SearchTab, AppSearchScreen, UpdatesTab sourceVersions) route APKCOMBO into the WebView branch. `AppUpdatesViewModel.getSourcePageUrl` uses `sourceDownloadUrl` directly for APKCOMBO (no bogus search URL fallback). `AppSearchViewModel.downloadFromPage` has no explicit APKCOMBO branch (falls to `else → result.downloadPageUrl`) — no double-append of `/download/apk`.
@@ -182,9 +229,10 @@ Caller replays these headers in OkHttp via `DownloadManager.startDownload(header
 
 **Strict capture filter (`isDownloadUrl`):** Never capture on loose substring matches like `/download` or `cdn` — the old `_isDl()` matched the APKCombo page URL itself (`.../download/apk`) and XHR API endpoints, poisoning `window._apkm_dl_url` and causing premature capture (OkHttp would download an HTML page → 403). The fix: a single strict predicate (Kotlin + mirrored JS) — URL path (query/fragment stripped) must end in `.apk/.apkm/.xapk/.apks/.aab`, or host must be a known file-CDN (`cloudflarestorage.com`, `d.apkpure.com`, `downloadr`). Applied at every capture entry point (JS `_isDl()`, XHR JSON-sniff, `onPageStarted`/`onPageFinished` JS-result checks, `shouldOverrideUrlLoading`, `DownloadListener`). Also fixes signed query strings (`...apk?sig=...`) that bare `endsWith` missed — query is stripped before the extension check.
 
-### Auto-Update Worker Constraints
-`AppCheckWorker`: OFF mode = notify only. ON mode = silent download+install via Root only (never Intent fallback in background).
-Only sources with direct APK URLs are eligible: `DIRECT_DOWNLOAD_SOURCES = {APTOIDE, GITHUB, FDROID, MEMEOS}`.
+### Auto-Update Worker (DOWNLOAD-ONLY since v1.5.0)
+`AppCheckWorker`: OFF mode = notify with count. ON mode = download each update in background, register as `AWAITING_INSTALL` via `DownloadManager.registerCompletedDownload()`, post "Atualizações prontas" notification via `NotificationHelper.showDownloadsReady()` — **no silent install** (root/session removed from dispatch chain). User taps notification → opens Downloads tab → taps each item to install via system installer.
+
+Only sources with direct APK URLs are eligible: `DIRECT_DOWNLOAD_SOURCES = {APTOIDE, GITHUB, FDROID, MEMEOS, TENCENT}`.
 APKMirror and Uptodown are skipped — they require intermediate pages or WebView.
 MEMEOS provides direct signed URLs via `MemeOsService.resolveDirectDownloadUrl()` (two HTTP GETs, bypasses the 20-second countdown).
 
@@ -224,16 +272,14 @@ object SignatureGate {
 
 **Future-proofing:** if a source of xiaomi.eu-signed individual APKs ever appears, the gate is ready — add the source to the `isCustomRomSigned` branch in `checkOneSystemApp()` and wire it through the existing `UpdateSource` + UI infrastructure.
 
-### Fast-Path de Fontes (Two-Phase Pipeline)
+### Fast-Path de Fontes (Two-Phase Pipeline) — corrected v1.4.3
 `checkOneThirdPartyApp` in `AppUpdateRepositoryImpl` uses a two-phase pipeline:
 
 **Phase 1 (cheap JSON APIs, parallel):** Aptoide (`ws75.aptoide.com/api/7/getApp`), F-Droid (`f-droid.org/api/v1/packages`), GitHub (`api.github.com/repos/.../releases/latest`), Tencent (`a.app.sj.qq.com/o/simple.jsp`). These are simple HTTP+JSON calls with no parsing overhead.
 
-**Phase 2 (HTML scrapers, parallel):** APKPure, APKCombo, APKMirror, MemeOS, Uptodown. Only runs when **every** phase-1 source returned `null` — i.e. the app is unknown to all JSON APIs. These scrapers are ~4-8× slower than JSON APIs because they involve Jsoup HTML parsing and often multiple HTTP round-trips.
+**Phase 2 (HTML scrapers, parallel):** APKPure, APKCombo, APKMirror, MemeOS, Uptodown. Only runs when **no** phase-1 source found an actual **newer version** — i.e. `phase1HasUpdate = phase1Results.any { isNewer(app.versionName, it.versionName) }` is `false`. If F-Droid or another API knows the app but lags behind upstream (same or older version), phase 2 still runs to find the real update from scrapers. These scrapers are ~4-8× slower than JSON APIs because they involve Jsoup HTML parsing and often multiple HTTP round-trips.
 
-**Trade-off documented in KDoc:** when an API resolves the app, scrapers are skipped entirely — less cross-checking in that specific case. In practice the JSON APIs (especially F-Droid and Aptoide) cover the vast majority of packages.
-
-`Log.d("AppUpdateRepo", ...)` shows `Phase 2 scraping for <pkg> — no API source knows this app` or `Phase 2 skipped for <pkg> — found in <sources>` per package. System apps (MemeOs catalog) are untouched — they still use `checkOneSystemApp`.
+**Trade-off documented in KDoc:** when a JSON API already has a genuinely newer version, scrapers are skipped — less cross-checking in that specific case. In practice the JSON APIs (especially F-Droid and Aptoide) cover the vast majority of packages. The key fix (v1.4.3): the old condition skipped phase 2 if any API merely *knew* the app (non-null result), which hid updates when APIs lagged.
 
 ### OkHttp Tuning
 `NetworkModule.kt` configures a shared `OkHttpClient` (also used by `DownloadUpdateUseCase` for large APK downloads):
@@ -258,4 +304,3 @@ The 120 s → 15 s `readTimeout` change does NOT kill slow-but-continuous downlo
 - `d.apkpure.com` returns 403 without proper Referer/Origin headers
 - Uptodown: no reliable package-name→URL mapping; **search endpoint DEAD** — all known URL patterns (`/android/search/<q>`, `/search?q=<q>`, `/android/buscar/<q>`) return HTTP 404/410; the site appears to have removed/relocated its search feature; service code kept intact but non-functional for search
 - MemeOS search returns empty for non-Xiaomi names — expected, catalog is Xiaomi system apps only
-- Root install via su may hang at Magisk grant prompt (120s timeout mitigates this)

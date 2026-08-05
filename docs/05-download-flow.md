@@ -23,11 +23,13 @@ DownloadManager updates StateFlow<Map<String, ActiveDownload>>
   ↓
 UI collects and shows progress
   ↓
-Download complete → InstallApkUseCase(file, pkg, isSystem)
+Download complete → adjustArchiveType → Wear guard → lone-split guard → executeInstall(file)
   ↓
-Root su pm install (stdin pipe) or PackageInstaller Intent fallback
+PackageManagerInstaller.openInstallIntent(file):
+  ├─ .apk → ACTION_VIEW direto (application/vnd.android.package-archive)
+  └─ .xapk/.apkm/.apks → Intent.createChooser("Instalar com…") (application/octet-stream)
   ↓
-Status: INSTALLING → COMPLETED or ERROR
+Status: AWAITING_INSTALL → polling a cada 2s por 60s → COMPLETED or ERROR
 ```
 
 ## WebView Assistido (APKMirror, APKCombo, APKPure, Uptodown)
@@ -186,16 +188,52 @@ Se true:
 
 Cancel and dismiss also terminate any active **install-poll job** (`"$key-poll"`) — this prevents cancelled downloads from resurrecting when the poll eventually confirms the install. Dismiss additionally removes the entry from `StateFlow` and the `activeJobs` map.
 
-## Install Robustness
+## Install Delegation (v1.5.0+)
 
-Before launching a new install (`runInstall`), any prior install job for the same key is cancelled — preventing concurrent double-install races. The completion handler in `AppUpdatesViewModel` matches both primary-source keys (`updateSource.name + appName`) and sourceVersion keys (`sv.source.name + appName`), so downloads initiated from the expanded sourceVersions list are correctly detected.
+After the guard chain (`adjustArchiveType` → `isWearOsApk` → `isLoneSplitApk`), `executeInstall()` delegates to `PackageManagerInstaller.openInstallIntent()`:
 
-## Root Install: waitFor Before Join
+```kotlin
+fun openInstallIntent(file: File): Boolean {
+    val ext = file.name.substringAfterLast('.', "").lowercase()
+    val mime = when (ext) {
+        "apk" -> "application/vnd.android.package-archive"
+        "xapk", "apkm", "apks" -> "application/octet-stream"
+        else -> "application/vnd.android.package-archive"
+    }
+    val uri = FileProvider.getUriForFile(context, authority, file)
+    val viewIntent = Intent(Intent.ACTION_VIEW).apply {
+        setDataAndType(uri, mime)
+        flags = FLAG_GRANT_READ_URI_PERMISSION or FLAG_ACTIVITY_NEW_TASK
+        putExtra(Intent.EXTRA_NOT_UNKNOWN_SOURCE, true)
+    }
+    val isBundle = ext in setOf("xapk", "apkm", "apks")
+    val launchIntent = if (isBundle) {
+        Intent.createChooser(viewIntent, "Instalar com…")  // v1.5.2
+    } else {
+        viewIntent
+    }
+    context.startActivity(launchIntent)
+    return true
+}
+```
 
-`su` stdin-pipe installs (both `DownloadManager.rootInstallSingle()` and `RootApkInstaller`) use `process.waitFor(timeout)` **before** joining stdout/stderr reader threads. Reader threads block until EOF (process exit), so joining them first would hang forever behind a Magisk grant prompt, making the timeout useless. The correct order:
-1. `process.waitFor(120, SECONDS)` — blocks with timeout
-2. On timeout: `process.destroyForcibly()`
-3. Then `stdoutThread.join(5_000)`, `stderrThread.join(5_000)`, `writerThread.join(5_000)`
+**Bundle chooser (v1.5.2):** Split bundles MUST use `Intent.createChooser` — the MIUI stock installer silently captures `ACTION_VIEW` intents for split bundles and fails with `MISSING_SPLIT`. The chooser forces the user to pick SAI or their preferred split-APK installer explicitly.
+
+### Guard Order
+
+1. **`adjustArchiveType(file)`** — detect XAPK/APKM by ZIP content (no root `AndroidManifest.xml` + inner `.apk` entries → rename `.xapk`)
+2. **`isWearOsApk(file)`** — PackageManager `reqFeatures` + byte-scan fallback for `android.hardware.type.watch`
+3. **`isLoneSplitApk(file)`** (v1.5.1) — `PackageInfo.splitNames` check; blocks lone config/DPI/ABI splits with PT message
+
+### ERROR State — System Installer Button (v1.4.9)
+
+When install fails but the file is a valid single APK on disk, `DownloadProgress.canUseSystemInstaller = true` shows an `InstallMobile` icon button ("Abrir instalador do sistema") on error cards. Bundles and download-failure errors set `canUseSystemInstaller = false` — only dismiss available.
+
+See [03-installation.md](03-installation.md) for the full install flow documentation.
+
+## Root Install — @Deprecated (kept for reference)
+
+The old root/session install methods (`rootInstallSingle`, `rootInstallMulti`, `sessionInstallSingle`, `sessionInstallMulti`) are `@Deprecated` in `DownloadManager.kt`. Root is used only for full system logcat in `LogShareHelper`. The `waitFor`-before-join pattern is preserved in `LogShareHelper.runLogcat()`.
 
 ## MemeOS Direct Download (Bypass do Countdown)
 

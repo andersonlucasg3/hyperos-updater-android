@@ -14,7 +14,7 @@ Três abas principais:
 ├────────────────┴───────────────────────┴────────────────────────┤
 │  Download Manager (OkHttp + progresso)                          │
 ├─────────────────────────────────────────────────────────────────┤
-│  Instalação (Root su → PackageInstaller.Session → Intent)      │
+│  Instalação (delegada ao instalador do sistema)                   │
 ├─────────────────────────────────────────────────────────────────┤
 │  Background (WorkManager a cada 24h + Auto-Update opcional)     │
 └─────────────────────────────────────────────────────────────────┘
@@ -44,7 +44,7 @@ Três abas principais:
 | Scraping | Jsoup |
 | Banco Local | Room |
 | Background | WorkManager |
-| Instalação | Root (su) → PackageInstaller.Session → Intent |
+| Instalação | Sistema (ACTION_VIEW + FileProvider; chooser p/ bundles) |
 | Build | Gradle 8.9 + AGP 8.7.3 |
 
 ## Arquitetura

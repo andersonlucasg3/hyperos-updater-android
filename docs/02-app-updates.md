@@ -87,12 +87,14 @@ Para cada app instalado:
   ↓
   phase1Results = listOfNotNull(aptoide, fdroid, github, tencent)
   ↓
-  ┌─ phase1Results NÃO vazio?
+  phase1HasUpdate = phase1Results.any { isNewer(app.versionName, it.versionName) }
+  ↓
+  ┌─ phase1HasUpdate == TRUE?
   │    SIM → Phase 2 SKIPPED — AppUpdate built from phase-1 results only
-  │          Log.d("AppUpdateRepo", "Phase 2 skipped — found in ...")
+  │          Log.d("AppUpdateRepo", "Phase 2 skipped — update found via ...")
   │    NÃO → Phase 2 — HTML scrapers (paralelo):
   │          APKPure / APKCombo / APKMirror / MemeOs / Uptodown
-  │          Log.d("AppUpdateRepo", "Phase 2 scraping — no API source knows this app")
+  │          Log.d("AppUpdateRepo", "Phase 2 scraping — no newer version from APIs")
   └─
   ↓
   Coleta SourceResult de cada fonte disponível
@@ -106,7 +108,7 @@ Para cada app instalado:
   AppUpdate com sourceVersions completo (todas as fontes com versão mais nova)
 ```
 
-**Trade-off:** quando uma API resolve o app, as fontes de scraping não são consultadas naquele scan — menos cross-check nesse caso específico. Na prática as APIs JSON (especialmente F-Droid e Aptoide) cobrem a vasta maioria dos pacotes. Apps de sistema (catálogo MemeOs) não são afetados — continuam com `checkOneSystemApp`.
+**Correção (v1.4.3):** a condição antiga pulava Phase 2 se qualquer API simplesmente *conhecia* o app (resultado não-nulo). Isso escondia updates quando uma API como F-Droid conhecia o pacote mas estava atrasada em relação ao upstream. A nova condição só pula Phase 2 quando uma API encontrou versão **genuinamente mais nova** (`isNewer`).
 
 ## Busca Agregada Multi-Fonte (Find & Install)
 

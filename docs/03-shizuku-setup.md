@@ -1,6 +1,6 @@
 # Shizuku Setup
 
-> ⚠️ **REMOVED (v1):** Shizuku foi completamente removido do app. O suporte a Shizuku (instalador, UI de status, dependências, permissões no manifest, DataStore pref `shizuku_enabled`) foi deletado. O único método de instalação privilegiada agora é Root (`su`). O fallback não-privilegiado é PackageInstaller.Session → Intent ACTION_VIEW. Este documento é mantido apenas para referência histórica.
+> ⚠️ **REMOVED (v1):** Shizuku foi completamente removido do app. O suporte a Shizuku (instalador, UI de status, dependências, permissões no manifest, DataStore pref `shizuku_enabled`) foi deletado. A instalação agora é delegada ao instalador do sistema (ACTION_VIEW + FileProvider; v1.5.0+). Root é usado apenas para captura de logcat completo (LogShareHelper). Este documento é mantido apenas para referência histórica.
 
 ## Why Shizuku? (HISTÓRICO)
 

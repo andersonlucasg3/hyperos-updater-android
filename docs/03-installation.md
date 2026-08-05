@@ -1,78 +1,85 @@
 # Instalação de Atualizações
 
-## Estratégia de Instalação
+## Estratégia de Instalação (v1.5.0+)
+
+**Toda instalação é delegada ao instalador do sistema.** A cadeia Root→Session→Intent foi removida do dispatch path. O fluxo atual:
 
 ```
-Instalar APK
-├─ Root disponível?
-│  ├─ SIM → su + pm install -S <size> -r -d -i com.android.vending (stdin pipe, 120s timeout)
-│  │        Instalação silenciosa simulando origem Play Store
-│  └─ NÃO → PackageInstaller.Session (unattended, best-effort)
-│            └─ Fallback: FileProvider URI + ACTION_VIEW intent
-│                        Abre o instalador de pacotes do Android
-│                        Usuário clica em "Instalar"
+Download concluído
+  ↓
+adjustArchiveType(file) — detecta bundle por conteúdo ZIP, renomeia .xapk se necessário
+  ↓
+isWearOsApk(file) — bloqueia APKs de relógio (PackageManager + byte-scan)
+  ↓
+isLoneSplitApk(file) — bloqueia splits isolados (PackageInfo.splitNames, v1.5.1)
+  ↓
+executeInstall(file) → PackageManagerInstaller.openInstallIntent(file)
+  ↓
+  ├─ .apk → ACTION_VIEW direto (application/vnd.android.package-archive)
+  │         Abre o instalador de pacotes do sistema
+  │
+  └─ .xapk/.apkm/.apks → Intent.createChooser(ACTION_VIEW, "Instalar com…")
+                          (application/octet-stream, v1.5.2)
+                          Usuário escolhe instalador SAI-style;
+                          evita que o instalador stock MIUI capture
+                          o intent e falhe com MISSING_SPLIT
+  ↓
+Polling de confirmação: a cada 2s por 60s, verifica versionCode instalado
+  ↓
+Status: COMPLETED (instalado) ou ERROR (falha)
 ```
 
-## Root (método primário)
+## Por que delegação?
 
-### O que é
-Quando o dispositivo tem root (Magisk/KernelSU/APatch), o app usa `su` para executar
-`pm install` com privilégios de root. O APK é enviado via stdin pipe.
+O problema original com Root/Session:
 
-### Comando de Instalação
-```
-su -c "pm install -S <size> -r -d -i com.android.vending"
-```
-- `-S <size>`: tamanho do APK em bytes (para stdin)
-- `-r`: substitui app existente
-- `-d`: permite downgrade
-- `-i com.android.vending`: simulador de origem Play Store (evita restrições)
+- **Root (`su pm install`)**: exige Magisk/KernelSU, trava em prompt de concessão, não funciona em todos os dispositivos
+- **PackageInstaller.Session**: `session.commit()` exige `PendingIntent.FLAG_MUTABLE` (framework preenche status extras), mas Android 14+ proíbe `FLAG_MUTABLE` com intents implícitos → o pattern correto é `Intent(action).setPackage(pkg)` + `FLAG_MUTABLE|FLAG_UPDATE_CURRENT`; na prática, implementação frágil entre versões de Android
 
-### Timeout
-O `waitFor()` tem timeout de 120 segundos. Se o Magisk mostrar prompt de concessão
-e o usuário não interagir, o processo será encerrado após 120s.
+A delegação ao instalador do sistema resolve todos esses problemas de uma vez:
+- Funciona em qualquer dispositivo (root não necessário)
+- O instalador do sistema gerencia permissões, assinaturas e sessões corretamente
+- Bundles são roteados para instaladores SAI-style via chooser explícito
 
-### Verificação de Disponibilidade (diagnoseAvailability)
+## Ordem das Guardas (pós-download)
 
-O Settings agora usa `RootApkInstaller.diagnoseAvailability()` que faz probe de **5 candidatos su** em ordem:
+### 1. `adjustArchiveType(file)`
+CDNs frequentemente servem bundles sem extensão. Abre o ZIP e verifica:
+- Se há `.apk` interno E **não** há `AndroidManifest.xml` na raiz → é bundle → renomeia `.xapk`
+- APK real sempre tem `AndroidManifest.xml` na raiz do ZIP
 
-1. `su` (PATH — primeiro candidato, recebe o timeout longo)
-2. `/system/bin/su`
-3. `/system/xbin/su`
-4. `/sbin/su`
-5. `/su/bin/su`
+### 2. `isWearOsApk(file)`
+Bloqueia APKs de Wear OS (relógio):
+- `PackageManager.getPackageArchiveInfo()` → `reqFeatures` → `android.hardware.type.watch`
+- Fallback: byte-scan do `AndroidManifest.xml` (UTF-8 + UTF-16LE)
+- Bundles: varre APKs internos recursivamente
+- Se detectado → `ERROR` com mensagem "Este APK é para Wear OS (relógio), não para o telefone"
 
-O **primeiro candidato** recebe o timeout de prompt longo:
-- 60s ao clicar "Solicitar acesso root" (tempo para o usuário responder ao dialog KernelSU/Magisk)
-- 10s ao clicar "Verificar novamente" ou no refresh automático
+### 3. `isLoneSplitApk(file)` (v1.5.1)
+Detecta APKs que são apenas um split (config/DPI/ABI) de um app:
+- `PackageManager.getPackageArchiveInfo()` → `PackageInfo.splitNames`
+- Se `splitNames` não for nulo/vazio → é um split isolado, não um APK standalone
+- Bloqueado com mensagem PT: "Este arquivo é apenas uma parte (split) do app — baixe o pacote completo/bundle na página de variantes"
+- Fail-soft: erro de leitura → `false` (deixa instalar)
+- Apenas `.apk` é verificado (bundles legitimamente contêm splits)
 
-Os demais candidatos são probes rápidos (5s). O resultado (`RootDiagnosis`) inclui o status de cada candidato: `OK <caminho>` em caso de sucesso, ou `exit=N err=...` / `timeout` / exceção em caso de falha.
+### 4. `executeInstall(file)` → delegação
+Após passar por todas as guardas, o arquivo é entregue ao instalador do sistema.
 
-O Settings mostra o resultado per-candidate (`rootDiagnosis`) abaixo do status "Root disponível"/"Root não disponível" para debug on-device. Isso é particularmente útil com **KernelSU** onde o comportamento de `su` pode variar.
+## ERROR State — Botão do Instalador do Sistema (v1.4.9)
 
-`checkAvailability()` (usado internamente pelo `install()`) chama `diagnoseAvailability(10, 5)` — 10s no primeiro candidato, 5s nos demais.
+Quando a instalação falha (ex: usuário cancelou o dialog do instalador), o card mostra estado `ERROR`. Se o arquivo baixado é um APK simples (não bundle) e existe no disco:
 
-O botão "Solicitar acesso root" executa `su -c echo ok` com timeout de 60s no primeiro candidato para forçar o Magisk/KernelSU a mostrar o dialog de concessão.
-"Verificar novamente" chama `RootApkInstaller.resetAvailability()` e re-executa `diagnoseAvailability(10, 5)`.
+- `DownloadProgress.canUseSystemInstaller = true` → aparece botão `InstallMobile` ("Abrir instalador do sistema") para re-tentar
+- Bundles: `canUseSystemInstaller = false` → apenas botão de dismiss
 
-## Fallback (sem Root)
+## Root — Uso Atual
 
-Se o Root não estiver disponível, o app tenta:
+Root **não** é mais usado para instalação. O `RootApkInstaller` ainda existe no código com seus métodos `@Deprecated`, mas a única função que usa root ativamente é:
 
-1. **PackageInstaller.Session** — instalação unattended via API do Android (best-effort, pode falhar silenciosamente)
-2. **Intent ACTION_VIEW** — abre o instalador de pacotes do sistema:
+- **`LogShareHelper.runLogcat()`** — captura logcat completo do sistema via `su -c logcat` (apenas quando root disponível)
 
-```kotlin
-val uri = FileProvider.getUriForFile(context, authority, apkFile)
-val intent = Intent(Intent.ACTION_VIEW).apply {
-    setDataAndType(uri, "application/vnd.android.package-archive")
-    flags = FLAG_GRANT_READ_URI_PERMISSION or FLAG_ACTIVITY_NEW_TASK
-}
-context.startActivity(intent)
-```
-
-Isso abre a tela de instalação do sistema onde o usuário clica em "Instalar".
-Após o Intent, o app faz polling a cada 2s por até 60s para confirmar a instalação.
+O Settings mostra o texto: *"Root é usado apenas para captura completa de logs (Compartilhar Logs). A instalação de apps é delegada ao instalador do sistema."*
 
 ## OTA ROM (desligada no v1)
 
@@ -90,14 +97,13 @@ A instalação de ROM precisa ser feita pelo próprio sistema HyperOS
 (modo Recovery ou escolhendo o pacote nas configurações de atualização).
 
 ## Segurança
-- MD5 verification após download (quando hash disponível)
 - FileProvider para acesso seguro aos arquivos (sem expor caminhos reais)
 - Permissão REQUEST_INSTALL_PACKAGES solicitada no manifest
 
 ## Arquivos Relevantes
 
 - [domain/installer/ApkInstaller.kt](../app/src/main/java/com/hyperos/updater/domain/installer/ApkInstaller.kt) — Interface
-- [domain/installer/RootApkInstaller.kt](../app/src/main/java/com/hyperos/updater/domain/installer/RootApkInstaller.kt) — Root impl (su stdin pipe)
-- [domain/installer/PackageManagerInstaller.kt](../app/src/main/java/com/hyperos/updater/domain/installer/PackageManagerInstaller.kt) — Fallback impl (Intent)
+- [domain/installer/PackageManagerInstaller.kt](../app/src/main/java/com/hyperos/updater/domain/installer/PackageManagerInstaller.kt) — Delegação via ACTION_VIEW + FileProvider
+- [domain/installer/RootApkInstaller.kt](../app/src/main/java/com/hyperos/updater/domain/installer/RootApkInstaller.kt) — @Deprecated, root apenas para LogShareHelper
+- [domain/DownloadManager.kt](../app/src/main/java/com/hyperos/updater/domain/DownloadManager.kt) — Orquestrador: guardas + executeInstall + polling
 - [di/InstallerModule.kt](../app/src/main/java/com/hyperos/updater/di/InstallerModule.kt) — Bindings (@Named root/fallback)
-- [domain/usecase/InstallApkUseCase.kt](../app/src/main/java/com/hyperos/updater/domain/usecase/InstallApkUseCase.kt) — Chain: root → fallback

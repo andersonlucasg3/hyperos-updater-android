@@ -9,7 +9,7 @@ com.hyperos.updater
 │   ├── AppModule.kt                 Context, PackageManager, NotificationManager
 │   ├── NetworkModule.kt             OkHttpClient, Moshi, Retrofit, API services
 │   ├── DatabaseModule.kt            Room DB, DAOs
-│   ├── InstallerModule.kt           ApkInstaller bindings (Root + fallback)
+│   ├── InstallerModule.kt           ApkInstaller bindings (root @Deprecated + fallback delegado)
 │   └── RepositoryModule.kt          Interface → Implementation bindings
 │
 ├── data/                            DATA LAYER
@@ -49,8 +49,8 @@ com.hyperos.updater
 │   │   └── GetDeviceInfoUseCase.kt
 │   └── installer/                   Installation abstraction
 │       ├── ApkInstaller.kt (interface)
-│       ├── RootApkInstaller.kt (su stdin pipe)
-│       └── PackageManagerInstaller.kt
+│       ├── RootApkInstaller.kt (@Deprecated — root apenas para LogShareHelper)
+│       └── PackageManagerInstaller.kt (delegação via ACTION_VIEW + FileProvider)
 │
 ├── ui/                              UI LAYER (Jetpack Compose)
 │   ├── MainActivity.kt
@@ -68,15 +68,20 @@ com.hyperos.updater
 │       └── DownloadProgressSheet.kt
 │
 ├── worker/                          Background work (v1)
-│   ├── AppCheckWorker.kt            Auto-update + notificação
+│   ├── AppCheckWorker.kt            Auto-update download-only + notificação
 │   ├── WorkerScheduler.kt           Agenda app_check, cancela ota_check
-│   └── NotificationHelper.kt        Notificações (incl. showAutoUpdateResults)
+│   └── NotificationHelper.kt        Notificações (showAppUpdatesAvailable, showDownloadsReady)
 │
 └── util/                            Utilities
     ├── VersionComparator.kt
     ├── XiaomiApps.kt
     ├── NetworkUtils.kt
-    └── Extensions.kt
+    ├── Extensions.kt
+    ├── CrashLogger.kt               Captura crashes não-tratados
+    ├── LogShareHelper.kt            Coleta e compartilha logs
+    ├── AppNameMatcher.kt            Matching por tiers (tryApkMirror)
+    ├── SignatureGate.kt             Detecção de assinatura AOSP test-key
+    └── WearOsDetector.kt            Detecção de APKs Wear OS
 ```
 
 ## Padrões e Decisões
@@ -112,7 +117,7 @@ Isso mantém a lógica de negócio testável e reutilizável.
 ### Decisões Críticas
 
 1. **Sem cache de URLs de download** — tokens expiram em ~4 dias
-2. **Root como único instalador privilegiado** — su stdin pipe com `-i com.android.vending` (simula Play Store)
+2. **Delegação ao instalador do sistema** — `ACTION_VIEW` + `FileProvider`; bundles via `Intent.createChooser("Instalar com…")` (v1.5.2); root/session removidos do dispatch chain
 3. **Moshi com KSP** — mais rápido que reflexão runtime
 4. **XmlPullParser para RSS** — nativo do Android, sem dependência extra
 5. **Jsoup para scraping** — robusto contra HTML malformado
@@ -120,4 +125,4 @@ Isso mantém a lógica de negócio testável e reutilizável.
 7. **8 fontes em paralelo** — `supervisorScope` + `async` com `Semaphore(6)`, `pickBest` versionName-first
 8. **WebView assistido** — captura passiva de URL + replay de headers (Referer, User-Agent, Cookie)
 9. **MemeOS direct download** — bypass do countdown de 20s via 2 HTTP GETs (`resolveDirectDownloadUrl`), resolve URL assinada sem WebView
-10. **Auto-update apenas Root** — nunca Intent fallback em background; apenas fontes com URL direta
+10. **Auto-update download-only** — worker baixa em background e notifica "Atualizações prontas"; sem instalação silenciosa

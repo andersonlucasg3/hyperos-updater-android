@@ -18,7 +18,7 @@
 As fontes de terceiros são divididas em duas fases no `checkOneThirdPartyApp`:
 
 - **Phase 1 (APIs JSON baratas):** Aptoide, F-Droid, GitHub, Tencent — executadas sempre em paralelo
-- **Phase 2 (HTML scrapers):** APKPure, APKCombo, APKMirror, MemeOS, Uptodown — só executadas quando **nenhuma** fonte da fase 1 conhece o app
+- **Phase 2 (HTML scrapers):** APKPure, APKCombo, APKMirror, MemeOS, Uptodown — só executadas quando **nenhuma** fonte da fase 1 encontrou versão genuinamente mais nova (`isNewer`)
 
 ### APKPure *(Phase 2 — HTML scraper)*
 - **Search:** `GET https://apkpure.com/search?q={packageName}` com headers `Referer` + `Origin`
